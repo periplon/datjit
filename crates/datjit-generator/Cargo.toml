@@ -1,0 +1,18 @@
+[package]
+name = "datjit-generator"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+datjit-core.workspace = true
+datjit-corpus.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+rand_chacha.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

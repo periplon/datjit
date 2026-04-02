@@ -1,0 +1,18 @@
+[package]
+name = "datjit-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "datjit"
+path = "src/main.rs"
+
+[dependencies]
+datjit-core.workspace = true
+datjit-parser.workspace = true
+datjit-generator.workspace = true
+datjit-output.workspace = true
+datjit-corpus.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
