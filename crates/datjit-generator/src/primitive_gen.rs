@@ -5,22 +5,77 @@ use uuid::Uuid;
 use datjit_core::types::PrimitiveType;
 use datjit_core::value::Value;
 
+const WORDS: &[&str] = &[
+    "account", "action", "admin", "alert", "alpha", "analytics", "app", "archive",
+    "asset", "audit", "auto", "backup", "batch", "beta", "billing", "build",
+    "cache", "channel", "check", "client", "cloud", "cluster", "config", "content",
+    "core", "custom", "daily", "dashboard", "data", "debug", "default", "deploy",
+    "design", "device", "display", "domain", "draft", "driver", "edge", "email",
+    "engine", "entry", "error", "event", "export", "feature", "field", "file",
+    "filter", "final", "first", "fix", "flow", "form", "gateway", "global",
+    "group", "handler", "health", "host", "import", "index", "initial", "input",
+    "install", "internal", "item", "job", "key", "label", "launch", "layer",
+    "legacy", "level", "limit", "link", "list", "load", "local", "log",
+    "main", "manage", "manual", "market", "master", "match", "media", "merge",
+    "metric", "migrate", "mobile", "model", "module", "monitor", "network", "node",
+    "note", "notify", "object", "online", "open", "option", "order", "output",
+    "package", "panel", "parser", "patch", "path", "payment", "plan", "platform",
+    "plugin", "policy", "portal", "preview", "primary", "process", "product", "profile",
+    "project", "proxy", "public", "query", "queue", "quota", "record", "region",
+    "release", "remote", "render", "report", "request", "reset", "resource", "review",
+    "role", "route", "rule", "runtime", "sample", "schema", "scope", "script",
+    "search", "secure", "server", "service", "session", "setup", "share", "signal",
+    "simple", "single", "snapshot", "source", "stage", "standard", "start", "state",
+    "static", "status", "step", "storage", "stream", "style", "submit", "support",
+    "sync", "system", "table", "target", "task", "team", "template", "tenant",
+    "test", "theme", "token", "tool", "trace", "track", "transfer", "trigger",
+    "unit", "update", "upload", "user", "value", "vendor", "verify", "version",
+    "view", "volume", "widget", "worker", "zone",
+];
+
+/// Generate a readable string of words up to `max_len` characters.
+fn generate_readable_string(max_len: usize, rng: &mut impl Rng) -> String {
+    let mut result = String::new();
+    // Pick a first word that fits
+    let first = pick_word_fitting(max_len, rng);
+    // Capitalize first word
+    let mut capitalized = String::with_capacity(first.len());
+    for (i, c) in first.chars().enumerate() {
+        if i == 0 {
+            capitalized.extend(c.to_uppercase());
+        } else {
+            capitalized.push(c);
+        }
+    }
+    result.push_str(&capitalized);
+
+    loop {
+        let word = WORDS[rng.gen_range(0..WORDS.len())];
+        if result.len() + 1 + word.len() > max_len {
+            break;
+        }
+        result.push(' ');
+        result.push_str(word);
+    }
+    result
+}
+
+/// Pick a word that fits within max_len, truncating if necessary.
+fn pick_word_fitting(max_len: usize, rng: &mut impl Rng) -> String {
+    let word = WORDS[rng.gen_range(0..WORDS.len())];
+    if word.len() <= max_len {
+        word.to_string()
+    } else {
+        word[..max_len].to_string()
+    }
+}
+
 /// Generate a default value for a primitive type.
 pub fn generate_primitive(prim: &PrimitiveType, rng: &mut impl Rng) -> Value {
     match prim {
         PrimitiveType::String(max_len) => {
-            let len = max_len.unwrap_or(10).min(100);
-            let s: String = (0..len)
-                .map(|_| {
-                    let idx = rng.gen_range(0..36);
-                    if idx < 26 {
-                        (b'a' + idx as u8) as char
-                    } else {
-                        (b'0' + (idx - 26) as u8) as char
-                    }
-                })
-                .collect();
-            Value::String(s)
+            let max = max_len.unwrap_or(30).min(200);
+            Value::String(generate_readable_string(max, rng))
         }
 
         PrimitiveType::Int(bits) => {
@@ -200,5 +255,27 @@ mod tests {
         let val1 = generate_primitive(&PrimitiveType::Int(None), &mut rng());
         let val2 = generate_primitive(&PrimitiveType::Int(None), &mut rng());
         assert_eq!(val1, val2); // Same seed -> same value
+    }
+
+    #[test]
+    fn test_string_generates_readable_words() {
+        let val = generate_primitive(&PrimitiveType::String(Some(60)), &mut rng());
+        match val {
+            Value::String(s) => {
+                // Should contain only letters and spaces (readable words)
+                assert!(
+                    s.chars().all(|c| c.is_alphabetic() || c == ' '),
+                    "string should be readable words, got: '{}'",
+                    s
+                );
+                // Should have at least one space (multiple words)
+                assert!(
+                    s.contains(' '),
+                    "string with max_len=60 should have multiple words, got: '{}'",
+                    s
+                );
+            }
+            _ => panic!("expected String"),
+        }
     }
 }

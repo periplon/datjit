@@ -162,6 +162,42 @@ fn test_deterministic_output_same_seed() {
 }
 
 #[test]
+fn test_named_enums_generate_valid_variants() {
+    let yaml = fs::read_to_string(fixtures_dir().join("project_management.yaml"))
+        .expect("failed to read project_management.yaml");
+
+    let parser = YamlParser;
+    let doc = parser.parse(&yaml).expect("failed to parse");
+
+    let engine = GenerationEngine::new().with_seed(42);
+    let dataset = engine.generate(&doc).unwrap();
+    let tasks = &dataset.entities["Task"];
+
+    let valid_priorities: std::collections::HashSet<&str> =
+        ["critical", "high", "medium", "low"].iter().copied().collect();
+    let valid_statuses: std::collections::HashSet<&str> =
+        ["backlog", "todo", "in_progress", "review", "done", "cancelled"]
+            .iter()
+            .copied()
+            .collect();
+
+    for row in &tasks.rows {
+        let priority = row["priority"].to_output_string();
+        let status = row["status"].to_output_string();
+        assert!(
+            valid_priorities.contains(priority.as_str()),
+            "Task priority '{}' is not a valid Priority variant",
+            priority
+        );
+        assert!(
+            valid_statuses.contains(status.as_str()),
+            "Task status '{}' is not a valid TaskStatus variant",
+            status
+        );
+    }
+}
+
+#[test]
 fn test_from_decorator_derives_email_from_name() {
     let yaml = fs::read_to_string(fixtures_dir().join("minimal.yaml"))
         .expect("failed to read minimal.yaml");

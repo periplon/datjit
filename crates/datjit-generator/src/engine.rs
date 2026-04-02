@@ -4,6 +4,7 @@ use datjit_core::error::DatjitError;
 use datjit_core::model::decorator::Decorator;
 use datjit_core::model::DdlDocument;
 use datjit_core::ports::generator::{DataGenerator, EntityData, GeneratedDataSet};
+use datjit_core::types::{EnumRef, TypeExpr};
 use datjit_core::value::Value;
 
 use crate::coherence::generate_coherence_groups;
@@ -52,6 +53,11 @@ impl DataGenerator for GenerationEngine {
         } else {
             doc.locale.clone()
         };
+
+        // Resolve TypeExpr::Named references against doc.enums
+        let mut resolved_doc = doc.clone();
+        resolve_named_types(&mut resolved_doc);
+        let doc = &resolved_doc;
 
         let mut ctx = GenerationContext::new(seed, locale);
         let plan = GenerationPlan::from_document(doc)?;
@@ -206,6 +212,31 @@ impl DataGenerator for GenerationEngine {
         }
 
         Ok(dataset)
+    }
+}
+
+/// Resolve `TypeExpr::Named` references against the document's enum definitions.
+/// Converts e.g. `TypeExpr::Named("TaskStatus")` → `TypeExpr::Enum(EnumRef::Inline(variants))`.
+fn resolve_named_types(doc: &mut DdlDocument) {
+    let enum_variants: std::collections::HashMap<String, Vec<String>> = doc
+        .enums
+        .iter()
+        .map(|(name, def)| {
+            (
+                name.clone(),
+                def.variants.iter().map(|v| v.value.clone()).collect(),
+            )
+        })
+        .collect();
+
+    for entity in doc.entities.values_mut() {
+        for field in entity.fields.values_mut() {
+            if let TypeExpr::Named(name) = &field.type_expr {
+                if let Some(variants) = enum_variants.get(name) {
+                    field.type_expr = TypeExpr::Enum(EnumRef::Inline(variants.clone()));
+                }
+            }
+        }
     }
 }
 
@@ -370,6 +401,71 @@ mod tests {
                 }
                 _ => panic!("expected Ref for user field"),
             }
+        }
+    }
+
+    #[test]
+    fn test_named_enum_resolved_to_variants() {
+        let mut doc = DdlDocument::new("test");
+        doc.seed = Some(42);
+
+        // Define named enums
+        doc.enums.insert(
+            "Priority".into(),
+            datjit_core::model::enum_def::EnumDef::simple("Priority", vec!["critical", "high", "medium", "low"]),
+        );
+        doc.enums.insert(
+            "TaskStatus".into(),
+            datjit_core::model::enum_def::EnumDef::simple(
+                "TaskStatus",
+                vec!["backlog", "todo", "in_progress", "review", "done", "cancelled"],
+            ),
+        );
+
+        let mut task = Entity::new("Task");
+        task.fields.insert(
+            "id".into(),
+            Field::new("id", TypeExpr::Primitive(PrimitiveType::Uuid))
+                .with_decorators(vec![Decorator::Primary]),
+        );
+        // Named enum references (parsed as TypeExpr::Named by the parser)
+        task.fields.insert(
+            "priority".into(),
+            Field::new("priority", TypeExpr::Named("Priority".into())),
+        );
+        task.fields.insert(
+            "status".into(),
+            Field::new("status", TypeExpr::Named("TaskStatus".into())),
+        );
+
+        doc.entities.insert("Task".into(), task);
+        doc.volume
+            .insert("Task".into(), datjit_core::model::VolumeSpec::Exact(50));
+
+        let engine = GenerationEngine::new();
+        let dataset = engine.generate(&doc).unwrap();
+
+        let valid_priorities: std::collections::HashSet<&str> =
+            ["critical", "high", "medium", "low"].iter().copied().collect();
+        let valid_statuses: std::collections::HashSet<&str> =
+            ["backlog", "todo", "in_progress", "review", "done", "cancelled"]
+                .iter()
+                .copied()
+                .collect();
+
+        for row in &dataset.entities["Task"].rows {
+            let priority = row["priority"].to_output_string();
+            let status = row["status"].to_output_string();
+            assert!(
+                valid_priorities.contains(priority.as_str()),
+                "priority '{}' is not a valid enum variant",
+                priority
+            );
+            assert!(
+                valid_statuses.contains(status.as_str()),
+                "status '{}' is not a valid enum variant",
+                status
+            );
         }
     }
 

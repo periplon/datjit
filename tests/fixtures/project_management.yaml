@@ -23,7 +23,7 @@ entities:
     id: uuid @primary
     org: ->Organization
     name: person.full
-    email: email @unique
+    email: email @unique @from(name)
     role: enum(admin, manager, member, viewer) @dist(5, 15, 70, 10)
 
   Project:
