@@ -5,6 +5,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use datjit_core::value::Value;
+use datjit_corpus::CorpusRegistry;
 
 /// Mutable state during data generation.
 pub struct GenerationContext {
@@ -16,6 +17,8 @@ pub struct GenerationContext {
     pub unique_sets: HashMap<(String, String), HashSet<Value>>,
     /// Auto-increment counters per entity.
     pub counters: HashMap<String, u64>,
+    /// Corpus registry for semantic type generation.
+    pub corpus: CorpusRegistry,
 }
 
 impl GenerationContext {
@@ -24,12 +27,14 @@ impl GenerationContext {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_entropy(),
         };
+        let corpus = CorpusRegistry::new(&locale);
         Self {
             rng,
             locale,
             generated: IndexMap::new(),
             unique_sets: HashMap::new(),
             counters: HashMap::new(),
+            corpus,
         }
     }
 

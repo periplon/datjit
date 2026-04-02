@@ -9,6 +9,6 @@ entities:
   User:
     id: uuid @primary
     name: person.full
-    email: email @unique
+    email: email @unique @from(name)
     age: int @range(18..65)
     active: bool

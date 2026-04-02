@@ -7,6 +7,8 @@ use datjit_core::model::entity::Field;
 use datjit_core::types::*;
 use datjit_core::value::Value;
 
+use datjit_core::ports::corpus::CorpusProvider;
+
 use crate::context::GenerationContext;
 use crate::distribution::sample_distribution;
 use crate::pattern::expand_pattern;
@@ -85,8 +87,11 @@ fn generate_for_type(
         }
 
         TypeExpr::Semantic(st) => {
-            // Fallback to simple generation based on semantic type
-            generate_semantic_fallback(st, &mut ctx.rng)
+            // Try corpus-backed generation first, fall back to embedded defaults
+            match ctx.corpus.sample(st, &mut ctx.rng) {
+                Ok(val) => Ok(val),
+                Err(_) => generate_semantic_fallback(st, &mut ctx.rng),
+            }
         }
 
         TypeExpr::Enum(enum_ref) => {

@@ -76,24 +76,39 @@ fn topological_sort(
         }
     }
 
-    let mut queue: VecDeque<String> = VecDeque::new();
-    for (name, &degree) in &in_degree {
-        if degree == 0 {
-            queue.push_back(name.clone());
-        }
-    }
+    // Collect zero-degree nodes and sort them to ensure deterministic ordering.
+    // Use the document's entity definition order as the tie-breaker so that
+    // the generation order is reproducible across runs.
+    let doc_order: Vec<String> = doc.entities.keys().cloned().collect();
+    let mut zero_degree: Vec<String> = in_degree
+        .iter()
+        .filter(|(_, &d)| d == 0)
+        .map(|(n, _)| n.clone())
+        .collect();
+    zero_degree.sort_by_key(|n| {
+        doc_order.iter().position(|o| o == n).unwrap_or(usize::MAX)
+    });
+    let mut queue: VecDeque<String> = zero_degree.into_iter().collect();
 
     let mut order = Vec::new();
     while let Some(name) = queue.pop_front() {
         order.push(name.clone());
         if let Some(dependents) = reverse_deps.get(&name) {
+            // Collect newly-ready dependents and sort by document order for determinism
+            let mut newly_ready = Vec::new();
             for dep in dependents {
                 if let Some(degree) = in_degree.get_mut(dep) {
                     *degree -= 1;
                     if *degree == 0 {
-                        queue.push_back(dep.clone());
+                        newly_ready.push(dep.clone());
                     }
                 }
+            }
+            newly_ready.sort_by_key(|n| {
+                doc_order.iter().position(|o| o == n).unwrap_or(usize::MAX)
+            });
+            for dep in newly_ready {
+                queue.push_back(dep);
             }
         }
     }
