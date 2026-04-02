@@ -25,17 +25,29 @@ pub fn generate_coherence_groups(
         }
     }
 
-    // Handle @from decorators for fields not already in coherence groups
+    // Handle @from decorators for fields not already in coherence groups.
+    // If the source field hasn't been generated yet, generate it on-demand
+    // so that @from works without requiring an explicit coherence group.
     for (field_name, field) in &entity.fields {
         if partial_row.contains_key(field_name) {
             continue;
         }
         for dec in &field.decorators {
             if let Decorator::From(sources) = dec {
-                if let Some(source_field) = sources.first() {
-                    if let Some(source_val) = partial_row.get(source_field) {
+                if let Some(source_field_name) = sources.first() {
+                    // Generate source field on-demand if not yet available
+                    if !partial_row.contains_key(source_field_name.as_str()) {
+                        if let Some(source_field) = entity.fields.get(source_field_name.as_str())
+                        {
+                            let source_val =
+                                generate_field(source_field, &entity.name, &partial_row, ctx)?;
+                            partial_row.insert(source_field_name.clone(), source_val);
+                        }
+                    }
+                    // Now derive the @from field
+                    if let Some(source_val) = partial_row.get(source_field_name.as_str()) {
                         let derived =
-                            derive_from_value(field_name, source_field, source_val, ctx)?;
+                            derive_from_value(field_name, source_field_name, source_val, ctx)?;
                         partial_row.insert(field_name.clone(), derived);
                     }
                 }
@@ -468,6 +480,48 @@ mod tests {
 
         let email = result["email"].to_output_string();
         assert!(email.contains('@'), "email should contain @, got: {}", email);
+    }
+
+    #[test]
+    fn test_from_decorator_without_coherence_group() {
+        let mut entity = Entity::new("User");
+        entity.fields.insert(
+            "name".into(),
+            Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full"))),
+        );
+        entity.fields.insert(
+            "email".into(),
+            Field::new("email", TypeExpr::Semantic(SemanticType::new("email", "")))
+                .with_decorators(vec![Decorator::From(vec!["name".into()])]),
+        );
+        // NO coherence_groups — this is the regression test
+
+        let mut ctx = make_ctx();
+        let result = generate_coherence_groups(&entity, &mut ctx).unwrap();
+
+        assert!(result.contains_key("name"), "name should be generated as @from source");
+        assert!(result.contains_key("email"), "email should be derived via @from");
+
+        let name = result["name"].to_output_string();
+        let email = result["email"].to_output_string();
+        assert!(email.contains('@'), "email should contain @, got: {}", email);
+
+        // Verify email is actually derived from the name
+        let name_parts: Vec<&str> = name.split_whitespace().collect();
+        if name_parts.len() >= 2 {
+            let expected_prefix = format!(
+                "{}.{}",
+                name_parts[0].to_lowercase(),
+                name_parts[1].to_lowercase()
+            );
+            assert!(
+                email.starts_with(&expected_prefix),
+                "email '{}' should start with '{}' (derived from name '{}')",
+                email,
+                expected_prefix,
+                name
+            );
+        }
     }
 
     #[test]

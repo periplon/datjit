@@ -78,14 +78,6 @@ impl DataGenerator for GenerationEngine {
                 }
             }
 
-            // Collect the set of fields in coherence groups
-            let coherence_field_set: std::collections::HashSet<String> = entity
-                .coherence_groups
-                .values()
-                .flatten()
-                .cloned()
-                .collect();
-
             let mut entity_data = EntityData::new(entity_name.clone(), columns);
 
             for _ in 0..volume {
@@ -96,9 +88,11 @@ impl DataGenerator for GenerationEngine {
                 loop {
                     row.clear();
 
-                    // Step 1: Generate coherence groups first
+                    // Step 1: Generate coherence groups (including implicit @from fields)
                     let coherence_values =
                         generate_coherence_groups(entity, &mut ctx)?;
+                    let coherence_field_set: std::collections::HashSet<&String> =
+                        coherence_values.keys().collect();
                     for (k, v) in &coherence_values {
                         row.insert(k.clone(), v.clone());
                     }
@@ -375,6 +369,57 @@ mod tests {
                     assert!(user_ids.contains(&pk.to_output_string()));
                 }
                 _ => panic!("expected Ref for user field"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_decorator_derives_email_without_coherence_group() {
+        let mut doc = DdlDocument::new("test");
+        doc.seed = Some(42);
+
+        let mut user = Entity::new("User");
+        user.fields.insert(
+            "id".into(),
+            Field::new("id", TypeExpr::Primitive(PrimitiveType::Uuid))
+                .with_decorators(vec![Decorator::Primary]),
+        );
+        user.fields.insert(
+            "name".into(),
+            Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full"))),
+        );
+        user.fields.insert(
+            "email".into(),
+            Field::new("email", TypeExpr::Semantic(SemanticType::new("email", "")))
+                .with_decorators(vec![
+                    Decorator::Unique,
+                    Decorator::From(vec!["name".into()]),
+                ]),
+        );
+        // NO coherence groups
+        doc.entities.insert("User".into(), user);
+        doc.volume
+            .insert("User".into(), datjit_core::model::VolumeSpec::Exact(5));
+
+        let engine = GenerationEngine::new();
+        let dataset = engine.generate(&doc).unwrap();
+
+        for row in &dataset.entities["User"].rows {
+            let name = row["name"].to_output_string();
+            let email = row["email"].to_output_string();
+            let parts: Vec<&str> = name.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let prefix = format!(
+                    "{}.{}",
+                    parts[0].to_lowercase(),
+                    parts[1].to_lowercase()
+                );
+                assert!(
+                    email.starts_with(&prefix),
+                    "email '{}' not derived from name '{}'",
+                    email,
+                    name
+                );
             }
         }
     }

@@ -160,3 +160,37 @@ fn test_deterministic_output_same_seed() {
         "different seeds should produce different output"
     );
 }
+
+#[test]
+fn test_from_decorator_derives_email_from_name() {
+    let yaml = fs::read_to_string(fixtures_dir().join("minimal.yaml"))
+        .expect("failed to read minimal.yaml");
+
+    let parser = YamlParser;
+    let doc = parser.parse(&yaml).expect("failed to parse");
+
+    let engine = GenerationEngine::new().with_seed(42);
+    let dataset = engine.generate(&doc).unwrap();
+    let users = &dataset.entities["User"];
+
+    for row in &users.rows {
+        let name = row["name"].to_output_string();
+        let email = row["email"].to_output_string();
+        let name_parts: Vec<&str> = name.split_whitespace().collect();
+        if name_parts.len() >= 2 {
+            let expected_local = format!(
+                "{}.{}",
+                name_parts[0].to_lowercase(),
+                name_parts[1].to_lowercase()
+            );
+            assert!(
+                email.starts_with(&expected_local),
+                "Row email '{}' should derive from name '{}' (expected prefix '{}')",
+                email,
+                name,
+                expected_local
+            );
+        }
+        assert!(email.contains('@'));
+    }
+}
