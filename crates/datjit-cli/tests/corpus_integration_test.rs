@@ -101,10 +101,7 @@ fn test_generate_all_semantic_types() {
             assert_eq!(sha.len(), 64, "SHA256 should be 64 hex chars: {sha}");
         }
         if let Value::String(hex) = row.get("hex_color").unwrap() {
-            assert!(
-                hex.starts_with('#'),
-                "hex color should start with #: {hex}"
-            );
+            assert!(hex.starts_with('#'), "hex color should start with #: {hex}");
             assert_eq!(hex.len(), 7, "hex color should be #RRGGBB: {hex}");
         }
     }
@@ -148,13 +145,21 @@ entities:
     let first_names: std::collections::HashSet<String> = dataset.entities["Person"]
         .rows
         .iter()
-        .filter_map(|r| r.get("first_name").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|r| {
+            r.get("first_name")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     let last_names: std::collections::HashSet<String> = dataset.entities["Person"]
         .rows
         .iter()
-        .filter_map(|r| r.get("last_name").and_then(|v| v.as_str()).map(String::from))
+        .filter_map(|r| {
+            r.get("last_name")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
         .collect();
 
     // With corpus, should have more variety than the 8-name embedded fallback
@@ -232,7 +237,7 @@ fn test_deterministic_with_corpus() {
                 if field == "id" {
                     continue;
                 } // Skip UUID primary keys
-                // Skip reference fields (contain non-deterministic UUIDs)
+                  // Skip reference fields (contain non-deterministic UUIDs)
                 if matches!(v1, Value::Ref(_, _)) {
                     continue;
                 }
@@ -240,5 +245,71 @@ fn test_deterministic_with_corpus() {
                 assert_eq!(v1, v2, "determinism failed: {entity_name}.{field} row {i}");
             }
         }
+    }
+}
+
+#[test]
+fn test_generate_ecommerce_types() {
+    let fixture = fixtures_dir().join("ecommerce.yaml");
+    let dataset = load_and_generate(fixture.to_str().unwrap(), 42);
+
+    assert!(dataset.entities.contains_key("Order"));
+    assert!(dataset.entities.contains_key("OrderItem"));
+    assert!(dataset.entities.contains_key("Return"));
+    assert!(dataset.entities.contains_key("Shipment"));
+
+    assert_eq!(dataset.entities["Order"].row_count(), 20);
+    assert_eq!(dataset.entities["OrderItem"].row_count(), 50);
+    assert_eq!(dataset.entities["Return"].row_count(), 10);
+    assert_eq!(dataset.entities["Shipment"].row_count(), 15);
+
+    // Validate Order fields
+    for row in &dataset.entities["Order"].rows {
+        let status = row.get("status").unwrap();
+        assert!(!status.is_null(), "order status should not be null");
+        if let Value::String(s) = status {
+            assert!(!s.is_empty(), "order status should not be empty");
+        }
+
+        let payment = row.get("payment_method").unwrap();
+        assert!(!payment.is_null());
+
+        let fulfillment = row.get("fulfillment").unwrap();
+        assert!(!fulfillment.is_null());
+
+        let discount = row.get("discount").unwrap();
+        assert!(!discount.is_null());
+    }
+
+    // Validate Shipment tracking numbers
+    for row in &dataset.entities["Shipment"].rows {
+        let carrier = row.get("carrier").unwrap();
+        assert!(!carrier.is_null());
+
+        let tracking = row.get("tracking").unwrap();
+        if let Value::String(s) = tracking {
+            assert!(s.len() > 5, "tracking number should have prefix + digits: {s}");
+        }
+    }
+
+    // Validate Return reasons
+    for row in &dataset.entities["Return"].rows {
+        let reason = row.get("reason").unwrap();
+        assert!(!reason.is_null());
+        if let Value::String(s) = reason {
+            assert!(!s.is_empty());
+        }
+    }
+
+    // Validate OrderItem fields
+    for row in &dataset.entities["OrderItem"].rows {
+        let dept = row.get("department").unwrap();
+        assert!(!dept.is_null());
+
+        let aisle = row.get("aisle").unwrap();
+        assert!(!aisle.is_null());
+
+        let cat = row.get("category").unwrap();
+        assert!(!cat.is_null());
     }
 }

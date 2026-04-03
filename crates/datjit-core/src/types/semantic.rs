@@ -66,6 +66,9 @@ impl SemanticType {
                 | "slug"
                 | "code"
                 | "hash"
+                | "accounting"
+                | "erp"
+                | "ecommerce"
         )
     }
 
@@ -115,9 +118,31 @@ mod tests {
     #[test]
     fn test_all_namespaces() {
         let names = [
-            "person", "email", "phone", "url", "address", "geo", "timezone", "currency",
-            "credit_card", "iban", "swift", "text", "product", "company", "job", "color", "file",
-            "sku", "slug", "code", "hash", "ipv4", "ipv6", "mac",
+            "person",
+            "email",
+            "phone",
+            "url",
+            "address",
+            "geo",
+            "timezone",
+            "currency",
+            "credit_card",
+            "iban",
+            "swift",
+            "text",
+            "product",
+            "company",
+            "job",
+            "color",
+            "file",
+            "sku",
+            "slug",
+            "code",
+            "hash",
+            "ipv4",
+            "ipv6",
+            "mac",
+            "accounting",
         ];
         for name in names {
             assert!(

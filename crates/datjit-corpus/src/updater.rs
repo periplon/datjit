@@ -194,6 +194,8 @@ pub fn known_sources() -> Vec<CorpusSource> {
     ];
     sources.extend(crate::updater_extra::extra_known_sources());
     sources.extend(crate::updater_github::github_known_sources());
+    sources.extend(crate::updater_odoo::odoo_known_sources());
+    sources.extend(crate::updater_ecommerce::ecommerce_known_sources());
     sources
 }
 
@@ -611,6 +613,24 @@ pub fn update_corpus(
         on_progress,
     );
 
+    // Odoo ERP sources (Batch 5: ERP reference data)
+    crate::updater_odoo::download_odoo_sources(
+        &client,
+        &temp_shared,
+        &temp_locale,
+        &mut report,
+        on_progress,
+    );
+
+    // Ecommerce sources (Batch 6: ecommerce datasets)
+    crate::updater_ecommerce::download_ecommerce_sources(
+        &client,
+        &temp_shared,
+        &temp_locale,
+        &mut report,
+        on_progress,
+    );
+
     // If at least one file succeeded, move into place transactionally
     if !report.files_updated.is_empty() {
         fs::create_dir_all(&locale_dir)
@@ -642,6 +662,29 @@ pub fn update_corpus(
     }
 
     Ok(report)
+}
+
+/// Helper to download a single corpus source with progress reporting and error collection.
+pub(crate) fn download_source(
+    name: &str,
+    file_key: &str,
+    fetch: impl FnOnce() -> Result<u64, DatjitError>,
+    report: &mut CorpusUpdateReport,
+    on_progress: &dyn Fn(&str),
+) {
+    on_progress(&format!("Downloading {name}..."));
+    match fetch() {
+        Ok(size) => {
+            report.files_updated.push(file_key.into());
+            report.total_size_bytes += size;
+            on_progress(&format!("  {file_key} ({} KB)", size / 1024));
+        }
+        Err(e) => {
+            let msg = format!("{e}");
+            on_progress(&format!("  FAILED: {msg}"));
+            report.files_failed.push((name.into(), msg));
+        }
+    }
 }
 
 /// Download a URL and return the response bytes.
@@ -2003,7 +2046,7 @@ mod tests {
     #[test]
     fn test_known_sources_count() {
         let sources = known_sources();
-        assert_eq!(sources.len(), 38);
+        assert_eq!(sources.len(), 51); // 39 original + 8 Odoo ERP + 4 ecommerce
     }
 
     #[test]

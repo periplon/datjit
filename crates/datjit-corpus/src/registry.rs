@@ -40,6 +40,21 @@ const CORPUS_FILES: &[&str] = &[
     "shared/airports.json",
     "shared/airlines.json",
     "shared/tlds.json",
+    "shared/accounting_plans.json",
+    // Odoo ERP reference data
+    "shared/erp_countries.json",
+    "shared/erp_states.json",
+    "shared/erp_currencies.json",
+    "shared/erp_uom.json",
+    "shared/erp_payment_terms.json",
+    "shared/erp_incoterms.json",
+    "shared/erp_tax_rates.json",
+    "shared/erp_account_types.json",
+    // Ecommerce datasets
+    "shared/instacart_aisles.json",
+    "shared/instacart_departments.json",
+    "shared/instacart_products.json",
+    "shared/uk_retail_products.json",
 ];
 
 impl CorpusRegistry {
@@ -59,13 +74,45 @@ impl CorpusRegistry {
         }
         Self {
             locale: locale.to_string(),
-            corpus_dir: if dir_exists {
-                Some(corpus_dir)
-            } else {
-                None
-            },
+            corpus_dir: if dir_exists { Some(corpus_dir) } else { None },
             cache,
         }
+    }
+
+    /// Try to sample an accounting plan entry from the external corpus.
+    /// Returns (code, local_name, english_name) if found.
+    /// `level` filters by code digit length: 1 = groups, 2 = subgroups, 3+ = accounts.
+    fn sample_accounting_plan(
+        &self,
+        country: &str,
+        level: u64,
+        rng: &mut dyn rand::RngCore,
+    ) -> Option<(String, String, String)> {
+        let arr = self.cache.get("shared/accounting_plans.json")?.as_array()?;
+        let filtered: Vec<_> = arr
+            .iter()
+            .filter(|v| {
+                let c = v.get("country").and_then(|c| c.as_str()).unwrap_or("");
+                let l = v.get("level").and_then(|l| l.as_u64()).unwrap_or(0);
+                c == country && l == level
+            })
+            .collect();
+        if filtered.is_empty() {
+            return None;
+        }
+        let entry = filtered[rng.gen_range(0..filtered.len())];
+        let code = entry.get("code").and_then(|v| v.as_str())?.to_string();
+        let name = entry
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let name_en = entry
+            .get("name_en")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        Some((code, name, name_en))
     }
 
     /// Try to sample a first name from the external corpus (weighted).
@@ -83,10 +130,7 @@ impl CorpusRegistry {
 
 /// Sample from a JSON array using weighted selection on a `weight` field,
 /// returning the value of the `name` field.
-fn sample_weighted_name(
-    arr: &[serde_json::Value],
-    rng: &mut dyn rand::RngCore,
-) -> Option<String> {
+fn sample_weighted_name(arr: &[serde_json::Value], rng: &mut dyn rand::RngCore) -> Option<String> {
     if arr.is_empty() {
         return None;
     }
@@ -127,11 +171,7 @@ fn sample_weighted_by(
     }
     let weights: Vec<f64> = arr
         .iter()
-        .map(|v| {
-            v.get(weight_field)
-                .and_then(|w| w.as_f64())
-                .unwrap_or(1.0)
-        })
+        .map(|v| v.get(weight_field).and_then(|w| w.as_f64()).unwrap_or(1.0))
         .collect();
     let total: f64 = weights.iter().sum();
     if total <= 0.0 {
@@ -163,7 +203,10 @@ fn sample_uniform(
         return None;
     }
     let idx = rng.gen_range(0..arr.len());
-    arr[idx].get(field).and_then(|v| v.as_str()).map(String::from)
+    arr[idx]
+        .get(field)
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 impl CorpusProvider for CorpusRegistry {
@@ -176,9 +219,11 @@ impl CorpusProvider for CorpusRegistry {
         let val = match full.as_str() {
             // ── Person ──────────────────────────────────────────────
             "person.full" => {
-                let first = self.sample_first_name_from_corpus(rng)
+                let first = self
+                    .sample_first_name_from_corpus(rng)
                     .unwrap_or_else(|| sample_first_name(rng).to_string());
-                let last = self.sample_last_name_from_corpus(rng)
+                let last = self
+                    .sample_last_name_from_corpus(rng)
                     .unwrap_or_else(|| pick(embedded::LAST_NAMES, rng).to_string());
                 Value::String(format!("{first} {last}"))
             }
@@ -197,7 +242,8 @@ impl CorpusProvider for CorpusRegistry {
                 }
             }
             "person.username" => {
-                let first = self.sample_first_name_from_corpus(rng)
+                let first = self
+                    .sample_first_name_from_corpus(rng)
                     .unwrap_or_else(|| sample_first_name(rng).to_string())
                     .to_lowercase();
                 let num = rng.gen_range(1..999);
@@ -214,19 +260,28 @@ impl CorpusProvider for CorpusRegistry {
             }
             "person.age" => Value::Int(rng.gen_range(18..=85)),
             "person.bio" => {
-                let first = self.sample_first_name_from_corpus(rng)
+                let first = self
+                    .sample_first_name_from_corpus(rng)
                     .unwrap_or_else(|| sample_first_name(rng).to_string());
-                let title = if let Some(arr) = self.cache.get("shared/job_titles.json").and_then(|v| v.as_array()) {
-                    sample_uniform(arr, "title", rng)
-                        .unwrap_or_else(|| {
-                            let (t, _) = embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
-                            t.to_string()
-                        })
+                let title = if let Some(arr) = self
+                    .cache
+                    .get("shared/job_titles.json")
+                    .and_then(|v| v.as_array())
+                {
+                    sample_uniform(arr, "title", rng).unwrap_or_else(|| {
+                        let (t, _) =
+                            embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
+                        t.to_string()
+                    })
                 } else {
                     let (t, _) = embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
                     t.to_string()
                 };
-                let (city, state) = if let Some(arr) = self.cache.get("en-US/cities.json").and_then(|v| v.as_array()) {
+                let (city, state) = if let Some(arr) = self
+                    .cache
+                    .get("en-US/cities.json")
+                    .and_then(|v| v.as_array())
+                {
                     let city_name = sample_weighted_by(arr, "population", "name", rng);
                     // For state in bio, fall back to embedded since city corpus may not have state
                     if let Some(c) = city_name {
@@ -255,10 +310,12 @@ impl CorpusProvider for CorpusRegistry {
 
             // ── Email ───────────────────────────────────────────────
             "email" => {
-                let first = self.sample_first_name_from_corpus(rng)
+                let first = self
+                    .sample_first_name_from_corpus(rng)
                     .unwrap_or_else(|| sample_first_name(rng).to_string())
                     .to_lowercase();
-                let last = self.sample_last_name_from_corpus(rng)
+                let last = self
+                    .sample_last_name_from_corpus(rng)
                     .unwrap_or_else(|| pick(embedded::LAST_NAMES, rng).to_string())
                     .to_lowercase();
                 let domain = pick_email_domain(rng);
@@ -330,7 +387,11 @@ impl CorpusProvider for CorpusRegistry {
                 Value::String(format!("{num} {street} {suffix}"))
             }
             "address.city" => {
-                if let Some(arr) = self.cache.get("en-US/cities.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("en-US/cities.json")
+                    .and_then(|v| v.as_array())
+                {
                     if let Some(name) = sample_weighted_by(arr, "population", "name", rng) {
                         Value::String(name)
                     } else {
@@ -343,8 +404,13 @@ impl CorpusProvider for CorpusRegistry {
                 }
             }
             "address.state" => {
-                if let Some(arr) = self.cache.get("shared/admin1.json").and_then(|v| v.as_array()) {
-                    let us_states: Vec<&serde_json::Value> = arr.iter()
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/admin1.json")
+                    .and_then(|v| v.as_array())
+                {
+                    let us_states: Vec<&serde_json::Value> = arr
+                        .iter()
                         .filter(|v| v.get("country").and_then(|c| c.as_str()) == Some("US"))
                         .collect();
                     if let Some(entry) = us_states.get(rng.gen_range(0..us_states.len().max(1))) {
@@ -364,7 +430,11 @@ impl CorpusProvider for CorpusRegistry {
                 }
             }
             "address.zip" => {
-                if let Some(arr) = self.cache.get("en-US/postal_codes.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("en-US/postal_codes.json")
+                    .and_then(|v| v.as_array())
+                {
                     if let Some(zip) = sample_uniform(arr, "zip", rng) {
                         Value::String(zip)
                     } else {
@@ -377,7 +447,11 @@ impl CorpusProvider for CorpusRegistry {
                 }
             }
             "address.country" => {
-                if let Some(arr) = self.cache.get("shared/countries.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/countries.json")
+                    .and_then(|v| v.as_array())
+                {
                     if let Some(name) = sample_uniform(arr, "name", rng) {
                         Value::String(name)
                     } else {
@@ -407,7 +481,11 @@ impl CorpusProvider for CorpusRegistry {
 
             // ── Timezone ────────────────────────────────────────────
             "timezone" => {
-                if let Some(arr) = self.cache.get("shared/timezones.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/timezones.json")
+                    .and_then(|v| v.as_array())
+                {
                     if let Some(tz) = sample_uniform(arr, "timezone", rng) {
                         Value::String(tz)
                     } else {
@@ -518,7 +596,11 @@ impl CorpusProvider for CorpusRegistry {
 
             // ── Company ─────────────────────────────────────────────
             "company.name" => {
-                if let Some(arr) = self.cache.get("shared/companies.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/companies.json")
+                    .and_then(|v| v.as_array())
+                {
                     if let Some(name) = sample_uniform(arr, "name", rng) {
                         Value::String(name)
                     } else {
@@ -535,9 +617,14 @@ impl CorpusProvider for CorpusRegistry {
                 }
             }
             "company.industry" => {
-                if let Some(arr) = self.cache.get("shared/companies.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/companies.json")
+                    .and_then(|v| v.as_array())
+                {
                     // Filter to entries with a non-empty industry field
-                    let with_industry: Vec<&serde_json::Value> = arr.iter()
+                    let with_industry: Vec<&serde_json::Value> = arr
+                        .iter()
                         .filter(|v| {
                             v.get("industry")
                                 .and_then(|i| i.as_str())
@@ -573,15 +660,21 @@ impl CorpusProvider for CorpusRegistry {
 
             // ── Job ─────────────────────────────────────────────────
             "job.title" => {
-                if let Some(arr) = self.cache.get("shared/job_titles.json").and_then(|v| v.as_array()) {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/job_titles.json")
+                    .and_then(|v| v.as_array())
+                {
                     if let Some(title) = sample_uniform(arr, "title", rng) {
                         Value::String(title)
                     } else {
-                        let (title, _) = embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
+                        let (title, _) =
+                            embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
                         Value::String(title.to_string())
                     }
                 } else {
-                    let (title, _) = embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
+                    let (title, _) =
+                        embedded::JOB_TITLES[rng.gen_range(0..embedded::JOB_TITLES.len())];
                     Value::String(title.to_string())
                 }
             }
@@ -637,6 +730,481 @@ impl CorpusProvider for CorpusRegistry {
             "hash.md5" => Value::String(gen_hex_string(32, rng)),
             "hash.sha256" => Value::String(gen_hex_string(64, rng)),
 
+            // ── Accounting ─────────────────────────────────────────
+            "accounting.country" => {
+                let country = pick(embedded::ACCOUNTING_COUNTRIES, rng);
+                Value::String(country.to_string())
+            }
+            "accounting.group" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self.sample_accounting_plan(country, 1, rng) {
+                    Value::String(entry.0.to_string())
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_GROUPS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        Value::String("1".into())
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.1.to_string())
+                    }
+                }
+            }
+            "accounting.group_name" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self.sample_accounting_plan(country, 1, rng) {
+                    Value::String(entry.1.to_string())
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_GROUPS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        Value::String("Capital Accounts".into())
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.2.to_string())
+                    }
+                }
+            }
+            "accounting.group_name_en" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self.sample_accounting_plan(country, 1, rng) {
+                    Value::String(entry.2.to_string())
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_GROUPS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        Value::String("Capital Accounts".into())
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.3.to_string())
+                    }
+                }
+            }
+            "accounting.subgroup" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self.sample_accounting_plan(country, 2, rng) {
+                    Value::String(entry.0.to_string())
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_SUBGROUPS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        Value::String("10".into())
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.1.to_string())
+                    }
+                }
+            }
+            "accounting.subgroup_name" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self.sample_accounting_plan(country, 2, rng) {
+                    Value::String(entry.1.to_string())
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_SUBGROUPS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        Value::String("Capital".into())
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.2.to_string())
+                    }
+                }
+            }
+            "accounting.subgroup_name_en" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self.sample_accounting_plan(country, 2, rng) {
+                    Value::String(entry.2.to_string())
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_SUBGROUPS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        Value::String("Capital".into())
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.3.to_string())
+                    }
+                }
+            }
+
+            "accounting.account" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                // Try external corpus level 3, then 4, then embedded
+                if let Some(entry) = self
+                    .sample_accounting_plan(country, 3, rng)
+                    .or_else(|| self.sample_accounting_plan(country, 4, rng))
+                {
+                    Value::String(entry.0)
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_ACCOUNTS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        // Fall back to 4-digit
+                        let entries4: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_4
+                            .iter()
+                            .filter(|(c, _, _, _)| *c == country)
+                            .collect();
+                        if entries4.is_empty() {
+                            Value::String("100".into())
+                        } else {
+                            let e = entries4[rng.gen_range(0..entries4.len())];
+                            Value::String(e.1.to_string())
+                        }
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.1.to_string())
+                    }
+                }
+            }
+            "accounting.account_name" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self
+                    .sample_accounting_plan(country, 3, rng)
+                    .or_else(|| self.sample_accounting_plan(country, 4, rng))
+                {
+                    Value::String(entry.1)
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_ACCOUNTS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        let entries4: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_4
+                            .iter()
+                            .filter(|(c, _, _, _)| *c == country)
+                            .collect();
+                        if entries4.is_empty() {
+                            Value::String("Capital social".into())
+                        } else {
+                            let e = entries4[rng.gen_range(0..entries4.len())];
+                            Value::String(e.2.to_string())
+                        }
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.2.to_string())
+                    }
+                }
+            }
+            "accounting.account_name_en" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self
+                    .sample_accounting_plan(country, 3, rng)
+                    .or_else(|| self.sample_accounting_plan(country, 4, rng))
+                {
+                    Value::String(entry.2)
+                } else {
+                    let entries: Vec<_> = embedded::ACCOUNTING_ACCOUNTS
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if entries.is_empty() {
+                        let entries4: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_4
+                            .iter()
+                            .filter(|(c, _, _, _)| *c == country)
+                            .collect();
+                        if entries4.is_empty() {
+                            Value::String("Share capital".into())
+                        } else {
+                            let e = entries4[rng.gen_range(0..entries4.len())];
+                            Value::String(e.3.to_string())
+                        }
+                    } else {
+                        let e = entries[rng.gen_range(0..entries.len())];
+                        Value::String(e.3.to_string())
+                    }
+                }
+            }
+            "accounting.account_full" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                // Pick the deepest available level: 5 → 4 → 3
+                if let Some(entry) = self
+                    .sample_accounting_plan(country, 5, rng)
+                    .or_else(|| self.sample_accounting_plan(country, 4, rng))
+                    .or_else(|| self.sample_accounting_plan(country, 3, rng))
+                {
+                    Value::String(entry.0)
+                } else {
+                    // Try embedded: 5 → 4 → 3
+                    let e5: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_5
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if !e5.is_empty() {
+                        let e = e5[rng.gen_range(0..e5.len())];
+                        Value::String(e.1.to_string())
+                    } else {
+                        let e4: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_4
+                            .iter()
+                            .filter(|(c, _, _, _)| *c == country)
+                            .collect();
+                        if !e4.is_empty() {
+                            let e = e4[rng.gen_range(0..e4.len())];
+                            Value::String(e.1.to_string())
+                        } else {
+                            let e3: Vec<_> = embedded::ACCOUNTING_ACCOUNTS
+                                .iter()
+                                .filter(|(c, _, _, _)| *c == country)
+                                .collect();
+                            if e3.is_empty() {
+                                Value::String("1000".into())
+                            } else {
+                                let e = e3[rng.gen_range(0..e3.len())];
+                                Value::String(e.1.to_string())
+                            }
+                        }
+                    }
+                }
+            }
+            "accounting.account_full_name" => {
+                let country = semantic
+                    .params
+                    .first()
+                    .map(|s| strip_quotes(s.as_str()))
+                    .unwrap_or_else(|| pick(embedded::ACCOUNTING_COUNTRIES, rng));
+                if let Some(entry) = self
+                    .sample_accounting_plan(country, 5, rng)
+                    .or_else(|| self.sample_accounting_plan(country, 4, rng))
+                    .or_else(|| self.sample_accounting_plan(country, 3, rng))
+                {
+                    Value::String(entry.1)
+                } else {
+                    let e5: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_5
+                        .iter()
+                        .filter(|(c, _, _, _)| *c == country)
+                        .collect();
+                    if !e5.is_empty() {
+                        let e = e5[rng.gen_range(0..e5.len())];
+                        Value::String(e.2.to_string())
+                    } else {
+                        let e4: Vec<_> = embedded::ACCOUNTING_ACCOUNTS_4
+                            .iter()
+                            .filter(|(c, _, _, _)| *c == country)
+                            .collect();
+                        if !e4.is_empty() {
+                            let e = e4[rng.gen_range(0..e4.len())];
+                            Value::String(e.2.to_string())
+                        } else {
+                            let e3: Vec<_> = embedded::ACCOUNTING_ACCOUNTS
+                                .iter()
+                                .filter(|(c, _, _, _)| *c == country)
+                                .collect();
+                            if e3.is_empty() {
+                                Value::String("Capital social".into())
+                            } else {
+                                let e = e3[rng.gen_range(0..e3.len())];
+                                Value::String(e.2.to_string())
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── ERP domain types (Odoo corpus) ──────────────────────
+            "erp.payment_term" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/erp_payment_terms.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(name) = sample_uniform(arr, "name", rng) {
+                        Value::String(name)
+                    } else {
+                        Value::String("Net 30".into())
+                    }
+                } else {
+                    Value::String(pick(embedded::ERP_PAYMENT_TERMS, rng).to_string())
+                }
+            }
+            "erp.incoterm" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/erp_incoterms.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(code) = sample_uniform(arr, "code", rng) {
+                        Value::String(code)
+                    } else {
+                        Value::String("FOB".into())
+                    }
+                } else {
+                    Value::String(pick(embedded::ERP_INCOTERMS, rng).to_string())
+                }
+            }
+            "erp.uom" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/erp_uom.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(name) = sample_uniform(arr, "name", rng) {
+                        Value::String(name)
+                    } else {
+                        Value::String("Unit(s)".into())
+                    }
+                } else {
+                    Value::String(pick(embedded::ERP_UOM, rng).to_string())
+                }
+            }
+            "erp.tax_rate" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/erp_tax_rates.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(name) = sample_uniform(arr, "name", rng) {
+                        Value::String(name)
+                    } else {
+                        Value::String("VAT 21%".into())
+                    }
+                } else {
+                    Value::String(pick(embedded::ERP_TAX_RATES, rng).to_string())
+                }
+            }
+            "erp.account_type" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/erp_account_types.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(name) = sample_uniform(arr, "name", rng) {
+                        Value::String(name)
+                    } else {
+                        Value::String("Asset Receivable".into())
+                    }
+                } else {
+                    Value::String(pick(embedded::ERP_ACCOUNT_TYPES, rng).to_string())
+                }
+            }
+
+            // ── Ecommerce ──────────────────────────────────────────
+            "ecommerce.order_status" => {
+                Value::String(pick(embedded::ORDER_STATUSES, rng).to_string())
+            }
+            "ecommerce.payment_method" => {
+                Value::String(pick(embedded::PAYMENT_METHODS, rng).to_string())
+            }
+            "ecommerce.shipping_carrier" => {
+                let idx = rng.gen_range(0..embedded::SHIPPING_CARRIERS.len());
+                let (name, _) = embedded::SHIPPING_CARRIERS[idx];
+                Value::String(name.to_string())
+            }
+            "ecommerce.tracking_number" => {
+                let idx = rng.gen_range(0..embedded::SHIPPING_CARRIERS.len());
+                let (_, prefix) = embedded::SHIPPING_CARRIERS[idx];
+                Value::String(format!(
+                    "{}{:012}",
+                    prefix,
+                    rng.gen_range(100_000_000_000u64..999_999_999_999u64)
+                ))
+            }
+            "ecommerce.return_reason" => {
+                Value::String(pick(embedded::RETURN_REASONS, rng).to_string())
+            }
+            "ecommerce.discount_type" => {
+                Value::String(pick(embedded::DISCOUNT_TYPES, rng).to_string())
+            }
+            "ecommerce.fulfillment_status" => {
+                Value::String(pick(embedded::FULFILLMENT_STATUSES, rng).to_string())
+            }
+            "ecommerce.department" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/instacart_departments.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(name) = sample_uniform(arr, "name", rng) {
+                        Value::String(name)
+                    } else {
+                        Value::String(pick(embedded::ECOMMERCE_DEPARTMENTS, rng).to_string())
+                    }
+                } else {
+                    Value::String(pick(embedded::ECOMMERCE_DEPARTMENTS, rng).to_string())
+                }
+            }
+            "ecommerce.aisle" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/instacart_aisles.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(name) = sample_uniform(arr, "name", rng) {
+                        Value::String(name)
+                    } else {
+                        Value::String(pick(embedded::ECOMMERCE_AISLES, rng).to_string())
+                    }
+                } else {
+                    Value::String(pick(embedded::ECOMMERCE_AISLES, rng).to_string())
+                }
+            }
+            "ecommerce.product_category" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/instacart_products.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(dept) = sample_uniform(arr, "department", rng) {
+                        Value::String(dept)
+                    } else {
+                        Value::String("General Merchandise".into())
+                    }
+                } else {
+                    Value::String(pick(embedded::ECOMMERCE_DEPARTMENTS, rng).to_string())
+                }
+            }
+
             _ => {
                 return Err(DatjitError::Corpus(format!(
                     "no corpus data for semantic type: {full}"
@@ -666,6 +1234,16 @@ fn sample_first_name(rng: &mut dyn rand::RngCore) -> &'static str {
 
 fn pick<'a>(items: &'a [&str], rng: &mut dyn rand::RngCore) -> &'a str {
     items[rng.gen_range(0..items.len())]
+}
+
+/// Strip surrounding quotes from a string parameter (e.g. `"ES"` → `ES`).
+fn strip_quotes(s: &str) -> &str {
+    let s = s.trim();
+    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
 }
 
 fn pick_city(

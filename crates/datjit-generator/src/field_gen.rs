@@ -66,12 +66,16 @@ fn generate_for_type(
             for dec in decorators {
                 if let Decorator::Dist(dist) = dec {
                     match prim {
-                        PrimitiveType::Int(_) | PrimitiveType::Float(_) | PrimitiveType::Decimal(_, _) => {
+                        PrimitiveType::Int(_)
+                        | PrimitiveType::Float(_)
+                        | PrimitiveType::Decimal(_, _) => {
                             let range = extract_range_f64(decorators);
                             let sampled = sample_distribution(dist, range, &mut ctx.rng);
                             return match prim {
                                 PrimitiveType::Int(_) => Ok(Value::Int(sampled.round() as i64)),
-                                PrimitiveType::Float(_) => Ok(Value::Float((sampled * 100.0).round() / 100.0)),
+                                PrimitiveType::Float(_) => {
+                                    Ok(Value::Float((sampled * 100.0).round() / 100.0))
+                                }
                                 PrimitiveType::Decimal(_, scale) => {
                                     let factor = 10f64.powi(*scale as i32);
                                     Ok(Value::Float((sampled * factor).round() / factor))
@@ -94,13 +98,9 @@ fn generate_for_type(
             }
         }
 
-        TypeExpr::Enum(enum_ref) => {
-            generate_enum(enum_ref, decorators, &mut ctx.rng)
-        }
+        TypeExpr::Enum(enum_ref) => generate_enum(enum_ref, decorators, &mut ctx.rng),
 
-        TypeExpr::Reference(ref_type) => {
-            generate_reference(ref_type, entity_name, ctx)
-        }
+        TypeExpr::Reference(ref_type) => generate_reference(ref_type, entity_name, ctx),
 
         TypeExpr::Compound(compound) => match compound {
             CompoundType::Nullable(inner) => {
@@ -111,11 +111,38 @@ fn generate_for_type(
                 }
             }
             CompoundType::List(inner) => {
-                let count = ctx.rng.gen_range(0..5);
-                let items: Result<Vec<_>, _> = (0..count)
-                    .map(|_| generate_for_type(inner, &[], entity_name, ctx))
-                    .collect();
-                Ok(Value::List(items?))
+                // Use @len if present to determine item count, otherwise default 0..5
+                let (min_items, max_items) = decorators
+                    .iter()
+                    .find_map(|d| match d {
+                        Decorator::Len(lo, hi) => Some((*lo, *hi)),
+                        _ => None,
+                    })
+                    .unwrap_or((0, 4));
+                let count = ctx.rng.gen_range(min_items..=max_items);
+
+                let unique = decorators
+                    .iter()
+                    .any(|d| matches!(d, Decorator::UniqueItems));
+                if unique {
+                    let mut items = Vec::with_capacity(count);
+                    let mut seen = std::collections::HashSet::new();
+                    let mut attempts = 0;
+                    while items.len() < count && attempts < count * 100 + 100 {
+                        let val = generate_for_type(inner, &[], entity_name, ctx)?;
+                        let key = format!("{val:?}");
+                        if seen.insert(key) {
+                            items.push(val);
+                        }
+                        attempts += 1;
+                    }
+                    Ok(Value::List(items))
+                } else {
+                    let items: Result<Vec<_>, _> = (0..count)
+                        .map(|_| generate_for_type(inner, &[], entity_name, ctx))
+                        .collect();
+                    Ok(Value::List(items?))
+                }
             }
             CompoundType::Union(types) => {
                 let idx = ctx.rng.gen_range(0..types.len());
@@ -143,7 +170,10 @@ fn generate_for_type(
 
         TypeExpr::Named(_name) => {
             // Named types will be expanded in a later phase
-            Ok(generate_primitive(&PrimitiveType::String(None), &mut ctx.rng))
+            Ok(generate_primitive(
+                &PrimitiveType::String(None),
+                &mut ctx.rng,
+            ))
         }
     }
 }
@@ -151,7 +181,13 @@ fn generate_for_type(
 /// Extract a numeric range from decorators as (f64, f64), if present.
 fn extract_range_f64(decorators: &[Decorator]) -> Option<(f64, f64)> {
     for dec in decorators {
-        if let Decorator::Range(lo, hi) = dec {
+        if let Decorator::Range {
+            lo,
+            hi,
+            lo_exclusive,
+            hi_exclusive,
+        } = dec
+        {
             let lo_f = match lo {
                 RangeValue::Int(n) => *n as f64,
                 RangeValue::Float(n) => *n,
@@ -162,6 +198,15 @@ fn extract_range_f64(decorators: &[Decorator]) -> Option<(f64, f64)> {
                 RangeValue::Float(n) => *n,
                 _ => continue,
             };
+            // Adjust for exclusive bounds with a practical epsilon
+            let range_span = (hi_f - lo_f).abs();
+            let epsilon = if range_span > 0.0 {
+                (range_span * 1e-9).max(1e-10)
+            } else {
+                1e-10
+            };
+            let lo_f = if *lo_exclusive { lo_f + epsilon } else { lo_f };
+            let hi_f = if *hi_exclusive { hi_f - epsilon } else { hi_f };
             return Some((lo_f, hi_f));
         }
     }
@@ -364,6 +409,46 @@ fn generate_semantic_fallback(st: &SemanticType, rng: &mut impl Rng) -> Result<V
         }
         "iban" => Value::String(format!("DE{:02}{:04}{:04}{:04}{:04}{:02}", rng.gen_range(10..99), rng.gen_range(1000..9999), rng.gen_range(1000..9999), rng.gen_range(1000..9999), rng.gen_range(1000..9999), rng.gen_range(10..99))),
         "swift" => Value::String(format!("{}{}{}XXX", "COBA", "DE", "FF")),
+        // Ecommerce
+        "ecommerce.order_status" => {
+            let statuses = ["pending", "processing", "shipped", "delivered", "cancelled"];
+            Value::String(statuses[rng.gen_range(0..statuses.len())].into())
+        }
+        "ecommerce.payment_method" => {
+            let methods = ["credit_card", "debit_card", "paypal", "bank_transfer"];
+            Value::String(methods[rng.gen_range(0..methods.len())].into())
+        }
+        "ecommerce.shipping_carrier" => {
+            let carriers = ["FedEx", "UPS", "USPS", "DHL"];
+            Value::String(carriers[rng.gen_range(0..carriers.len())].into())
+        }
+        "ecommerce.tracking_number" => {
+            Value::String(format!("TRK{:012}", rng.gen_range(100_000_000_000u64..999_999_999_999u64)))
+        }
+        "ecommerce.return_reason" => {
+            let reasons = ["defective", "wrong_item", "changed_mind", "damaged_in_shipping"];
+            Value::String(reasons[rng.gen_range(0..reasons.len())].into())
+        }
+        "ecommerce.discount_type" => {
+            let types = ["percentage", "fixed_amount", "free_shipping", "buy_one_get_one"];
+            Value::String(types[rng.gen_range(0..types.len())].into())
+        }
+        "ecommerce.fulfillment_status" => {
+            let statuses = ["unfulfilled", "fulfilled", "partially_fulfilled", "cancelled"];
+            Value::String(statuses[rng.gen_range(0..statuses.len())].into())
+        }
+        "ecommerce.department" => {
+            let depts = ["produce", "dairy eggs", "beverages", "frozen", "snacks"];
+            Value::String(depts[rng.gen_range(0..depts.len())].into())
+        }
+        "ecommerce.aisle" => {
+            let aisles = ["fresh fruits", "fresh vegetables", "yogurt", "bread", "cereal"];
+            Value::String(aisles[rng.gen_range(0..aisles.len())].into())
+        }
+        "ecommerce.product_category" => {
+            let cats = ["Electronics", "Clothing", "Home & Garden", "Sports", "Toys"];
+            Value::String(cats[rng.gen_range(0..cats.len())].into())
+        }
         _ => {
             // Unknown semantic type — fall back to string
             Value::String(format!("{}_{}", st.full_name(), rng.gen_range(1..10000)))
@@ -393,7 +478,9 @@ fn generate_enum(
 
     // Check for @dist categorical
     for dec in decorators {
-        if let Decorator::Dist(datjit_core::model::decorator::Distribution::Categorical(probs)) = dec {
+        if let Decorator::Dist(datjit_core::model::decorator::Distribution::Categorical(probs)) =
+            dec
+        {
             if probs.len() == values.len() {
                 let total: f64 = probs.iter().sum();
                 let mut roll = rng.gen_range(0.0..total);
@@ -480,18 +567,34 @@ fn apply_range_constraint(
     _ctx: &mut GenerationContext,
 ) -> Result<Value, DatjitError> {
     for dec in decorators {
-        if let Decorator::Range(lo, hi) = dec {
+        if let Decorator::Range {
+            lo,
+            hi,
+            lo_exclusive,
+            hi_exclusive,
+        } = dec
+        {
             match (&value, lo, hi) {
                 (Value::Int(n), RangeValue::Int(lo), RangeValue::Int(hi)) => {
-                    let clamped = (*n).clamp(*lo, *hi);
+                    let effective_lo = if *lo_exclusive { *lo + 1 } else { *lo };
+                    let effective_hi = if *hi_exclusive { *hi - 1 } else { *hi };
+                    let clamped = (*n).clamp(effective_lo, effective_hi);
                     return Ok(Value::Int(clamped));
                 }
                 (Value::Float(n), RangeValue::Int(lo), RangeValue::Int(hi)) => {
-                    let clamped = n.clamp(*lo as f64, *hi as f64);
+                    let lo_f = *lo as f64;
+                    let hi_f = *hi as f64;
+                    let epsilon = ((hi_f - lo_f).abs() * 1e-9).max(1e-10);
+                    let effective_lo = if *lo_exclusive { lo_f + epsilon } else { lo_f };
+                    let effective_hi = if *hi_exclusive { hi_f - epsilon } else { hi_f };
+                    let clamped = n.clamp(effective_lo, effective_hi);
                     return Ok(Value::Float(clamped));
                 }
                 (Value::Float(n), RangeValue::Float(lo), RangeValue::Float(hi)) => {
-                    let clamped = n.clamp(*lo, *hi);
+                    let epsilon = ((*hi - *lo).abs() * 1e-9).max(1e-10);
+                    let effective_lo = if *lo_exclusive { *lo + epsilon } else { *lo };
+                    let effective_hi = if *hi_exclusive { *hi - epsilon } else { *hi };
+                    let clamped = n.clamp(effective_lo, effective_hi);
                     return Ok(Value::Float(clamped));
                 }
                 _ => {}
@@ -516,7 +619,10 @@ mod tests {
 
     #[test]
     fn test_generate_semantic_field() {
-        let field = Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full")));
+        let field = Field::new(
+            "name",
+            TypeExpr::Semantic(SemanticType::new("person", "full")),
+        );
         let mut ctx = GenerationContext::new(Some(42), "en-US".into());
         let val = generate_field(&field, "User", &IndexMap::new(), &mut ctx).unwrap();
         match val {
@@ -529,10 +635,15 @@ mod tests {
     fn test_generate_enum_with_dist() {
         let field = Field::new(
             "tier",
-            TypeExpr::Enum(EnumRef::Inline(vec!["free".into(), "pro".into(), "enterprise".into()])),
-        ).with_decorators(vec![
-            Decorator::Dist(datjit_core::model::decorator::Distribution::Categorical(vec![70.0, 25.0, 5.0])),
-        ]);
+            TypeExpr::Enum(EnumRef::Inline(vec![
+                "free".into(),
+                "pro".into(),
+                "enterprise".into(),
+            ])),
+        )
+        .with_decorators(vec![Decorator::Dist(
+            datjit_core::model::decorator::Distribution::Categorical(vec![70.0, 25.0, 5.0]),
+        )]);
 
         let mut ctx = GenerationContext::new(Some(42), "en-US".into());
         let mut counts = std::collections::HashMap::new();
