@@ -85,9 +85,7 @@ fn topological_sort(
         .filter(|(_, &d)| d == 0)
         .map(|(n, _)| n.clone())
         .collect();
-    zero_degree.sort_by_key(|n| {
-        doc_order.iter().position(|o| o == n).unwrap_or(usize::MAX)
-    });
+    zero_degree.sort_by_key(|n| doc_order.iter().position(|o| o == n).unwrap_or(usize::MAX));
     let mut queue: VecDeque<String> = zero_degree.into_iter().collect();
 
     let mut order = Vec::new();
@@ -104,9 +102,8 @@ fn topological_sort(
                     }
                 }
             }
-            newly_ready.sort_by_key(|n| {
-                doc_order.iter().position(|o| o == n).unwrap_or(usize::MAX)
-            });
+            newly_ready
+                .sort_by_key(|n| doc_order.iter().position(|o| o == n).unwrap_or(usize::MAX));
             for dep in newly_ready {
                 queue.push_back(dep);
             }
@@ -133,11 +130,15 @@ fn topological_sort(
 fn resolve_volumes(doc: &DdlDocument) -> HashMap<String, usize> {
     let mut volumes = HashMap::new();
     for name in doc.entities.keys() {
-        let vol = doc.volume.get(name).map(|v| match v {
-            VolumeSpec::Exact(n) => *n,
-            VolumeSpec::Range(lo, hi) => (*lo + *hi) / 2,
-            VolumeSpec::Inferred => 100,
-        }).unwrap_or(100);
+        let vol = doc
+            .volume
+            .get(name)
+            .map(|v| match v {
+                VolumeSpec::Exact(n) => *n,
+                VolumeSpec::Range(lo, hi) => (*lo + *hi) / 2,
+                VolumeSpec::Inferred => 100,
+            })
+            .unwrap_or(100);
         volumes.insert(name.clone(), vol);
     }
     volumes
@@ -186,11 +187,7 @@ mod tests {
         let plan = GenerationPlan::from_document(&doc).unwrap();
         // User must come before Order
         let user_idx = plan.entity_order.iter().position(|n| n == "User").unwrap();
-        let order_idx = plan
-            .entity_order
-            .iter()
-            .position(|n| n == "Order")
-            .unwrap();
+        let order_idx = plan.entity_order.iter().position(|n| n == "Order").unwrap();
         assert!(user_idx < order_idx);
     }
 

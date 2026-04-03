@@ -4,7 +4,11 @@ use clap::{Parser, Subcommand};
 mod commands;
 
 #[derive(Parser)]
-#[command(name = "datjit", version, about = "Synthetic data generation from DDL schemas")]
+#[command(
+    name = "datjit",
+    version,
+    about = "Synthetic data generation from DDL schemas"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

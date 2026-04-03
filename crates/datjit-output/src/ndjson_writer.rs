@@ -33,9 +33,10 @@ impl OutputWriter for NdJsonWriter {
         data: &GeneratedDataSet,
         dest: &mut dyn Write,
     ) -> Result<(), DatjitError> {
-        let entity_data = data.entities.get(entity_name).ok_or_else(|| {
-            DatjitError::Output(format!("entity not found: {entity_name}"))
-        })?;
+        let entity_data = data
+            .entities
+            .get(entity_name)
+            .ok_or_else(|| DatjitError::Output(format!("entity not found: {entity_name}")))?;
         write_entity_ndjson(entity_data, dest)
     }
 }
@@ -48,9 +49,7 @@ fn write_entity_ndjson(
         let obj: serde_json::Map<String, serde_json::Value> = entity_data
             .columns
             .iter()
-            .filter_map(|col| {
-                row.get(col).map(|v| (col.clone(), value_to_json(v)))
-            })
+            .filter_map(|col| row.get(col).map(|v| (col.clone(), value_to_json(v))))
             .collect();
 
         let line = serde_json::to_string(&serde_json::Value::Object(obj))
@@ -68,11 +67,9 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Null => serde_json::Value::Null,
         Value::Bool(b) => serde_json::Value::Bool(*b),
         Value::Int(n) => serde_json::Value::Number((*n).into()),
-        Value::Float(n) => {
-            serde_json::Number::from_f64(*n)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
+        Value::Float(n) => serde_json::Number::from_f64(*n)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         Value::String(s) => serde_json::Value::String(s.clone()),
         Value::DateTime(s)
         | Value::Date(s)
@@ -83,9 +80,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             let hex: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
             serde_json::Value::String(hex)
         }
-        Value::List(items) => {
-            serde_json::Value::Array(items.iter().map(value_to_json).collect())
-        }
+        Value::List(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
         Value::Map(pairs) => {
             let obj: serde_json::Map<String, serde_json::Value> = pairs
                 .iter()
@@ -93,9 +88,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
                 .collect();
             serde_json::Value::Object(obj)
         }
-        Value::Tuple(items) => {
-            serde_json::Value::Array(items.iter().map(value_to_json).collect())
-        }
+        Value::Tuple(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
         Value::Ref(_entity, pk) => value_to_json(pk),
     }
 }

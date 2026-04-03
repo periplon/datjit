@@ -171,9 +171,7 @@ pub fn run(args: GenerateArgs) -> Result<()> {
         "yaml" | "yml" => Box::new(YamlWriter::new()),
         "sql" => Box::new(SqlWriter::new(sql_dialect)),
         other => {
-            anyhow::bail!(
-                "Unsupported format: {other}. Supported: json, csv, ndjson, yaml, sql"
-            );
+            anyhow::bail!("Unsupported format: {other}. Supported: json, csv, ndjson, yaml, sql");
         }
     };
 

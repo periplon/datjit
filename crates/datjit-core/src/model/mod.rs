@@ -2,8 +2,10 @@ pub mod decorator;
 pub mod document;
 pub mod entity;
 pub mod enum_def;
+pub mod mcp_tool;
 pub mod rule;
 pub mod tool_inference;
+pub mod trigger;
 
 pub use decorator::*;
 pub use document::*;

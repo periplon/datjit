@@ -23,9 +23,7 @@ impl ReferenceType {
             ReferenceType::SelfRef { .. } => vec![],
             ReferenceType::HasMany { target } => vec![target.as_str()],
             ReferenceType::ManyToMany { target } => vec![target.as_str()],
-            ReferenceType::Polymorphic { targets } => {
-                targets.iter().map(|s| s.as_str()).collect()
-            }
+            ReferenceType::Polymorphic { targets } => targets.iter().map(|s| s.as_str()).collect(),
         }
     }
 

@@ -9,7 +9,7 @@ use std::path::Path;
 use datjit_core::error::DatjitError;
 use serde::{Deserialize, Serialize};
 
-use crate::updater::{download, CorpusSource, CorpusUpdateReport};
+use crate::updater::{download, download_source, CorpusSource, CorpusUpdateReport};
 
 // ---------------------------------------------------------------------------
 // Output structs
@@ -196,28 +196,6 @@ pub fn download_github_sources(
         report,
         on_progress,
     );
-}
-
-fn download_source(
-    name: &str,
-    file_key: &str,
-    fetch: impl FnOnce() -> Result<u64, DatjitError>,
-    report: &mut CorpusUpdateReport,
-    on_progress: &dyn Fn(&str),
-) {
-    on_progress(&format!("Downloading {name}..."));
-    match fetch() {
-        Ok(size) => {
-            report.files_updated.push(file_key.into());
-            report.total_size_bytes += size;
-            on_progress(&format!("  {file_key} ({} KB)", size / 1024));
-        }
-        Err(e) => {
-            let msg = format!("{e}");
-            on_progress(&format!("  FAILED: {msg}"));
-            report.files_failed.push((name.into(), msg));
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

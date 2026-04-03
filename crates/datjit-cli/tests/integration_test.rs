@@ -9,9 +9,7 @@ use datjit_parser::YamlParser;
 
 /// Helper: parse a fixture, generate data, and return the dataset.
 /// Panics with a clear message on failure.
-fn parse_and_generate(
-    fixture: &str,
-) -> datjit_core::ports::generator::GeneratedDataSet {
+fn parse_and_generate(fixture: &str) -> datjit_core::ports::generator::GeneratedDataSet {
     let yaml = fs::read_to_string(fixtures_dir().join(fixture))
         .unwrap_or_else(|_| panic!("failed to read {fixture}"));
     let parser = YamlParser;
@@ -191,13 +189,21 @@ fn test_named_enums_generate_valid_variants() {
     let dataset = engine.generate(&doc).unwrap();
     let tasks = &dataset.entities["Task"];
 
-    let valid_priorities: std::collections::HashSet<&str> =
-        ["critical", "high", "medium", "low"].iter().copied().collect();
-    let valid_statuses: std::collections::HashSet<&str> =
-        ["backlog", "todo", "in_progress", "review", "done", "cancelled"]
-            .iter()
-            .copied()
-            .collect();
+    let valid_priorities: std::collections::HashSet<&str> = ["critical", "high", "medium", "low"]
+        .iter()
+        .copied()
+        .collect();
+    let valid_statuses: std::collections::HashSet<&str> = [
+        "backlog",
+        "todo",
+        "in_progress",
+        "review",
+        "done",
+        "cancelled",
+    ]
+    .iter()
+    .copied()
+    .collect();
 
     for row in &tasks.rows {
         let priority = row["priority"].to_output_string();
@@ -261,9 +267,22 @@ fn test_fixture_primitives_and_params() {
     // Verify all primitive fields are present
     let r = &rows.rows[0];
     for field in &[
-        "id", "label", "label_bounded", "count", "count_32", "ratio", "ratio_32",
-        "price", "active", "created", "birthday", "alarm", "elapsed", "token",
-        "payload", "payload_small",
+        "id",
+        "label",
+        "label_bounded",
+        "count",
+        "count_32",
+        "ratio",
+        "ratio_32",
+        "price",
+        "active",
+        "created",
+        "birthday",
+        "alarm",
+        "elapsed",
+        "token",
+        "payload",
+        "payload_small",
     ] {
         assert!(r.contains_key(*field), "missing field: {field}");
     }
@@ -279,7 +298,10 @@ fn test_fixture_semantic_types() {
     // Spot-check a few semantic values
     let person = &ds.entities["Person"].rows[0];
     let name = person["full_name"].to_output_string();
-    assert!(name.contains(' '), "person.full should have first+last: {name}");
+    assert!(
+        name.contains(' '),
+        "person.full should have first+last: {name}"
+    );
 
     let contact = &ds.entities["Contact"].rows[0];
     let email = contact["email"].to_output_string();
@@ -296,16 +318,24 @@ fn test_fixture_enums_and_distributions() {
         ["red", "green", "blue", "yellow"].iter().copied().collect();
     let valid_tiers: std::collections::HashSet<&str> =
         ["free", "pro", "enterprise"].iter().copied().collect();
-    let valid_priorities: std::collections::HashSet<&str> =
-        ["critical", "high", "medium", "low"].iter().copied().collect();
+    let valid_priorities: std::collections::HashSet<&str> = ["critical", "high", "medium", "low"]
+        .iter()
+        .copied()
+        .collect();
 
     for row in &enums.rows {
         let color = row["color"].to_output_string();
-        assert!(valid_colors.contains(color.as_str()), "invalid color: {color}");
+        assert!(
+            valid_colors.contains(color.as_str()),
+            "invalid color: {color}"
+        );
         let tier = row["tier"].to_output_string();
         assert!(valid_tiers.contains(tier.as_str()), "invalid tier: {tier}");
         let priority = row["priority"].to_output_string();
-        assert!(valid_priorities.contains(priority.as_str()), "invalid priority: {priority}");
+        assert!(
+            valid_priorities.contains(priority.as_str()),
+            "invalid priority: {priority}"
+        );
     }
 
     // Verify distributions produce values in range
@@ -334,7 +364,11 @@ fn test_fixture_decorators() {
     }
 
     // Verify uniqueness on emails
-    let emails: Vec<_> = constrained.rows.iter().map(|r| r["email"].to_output_string()).collect();
+    let emails: Vec<_> = constrained
+        .rows
+        .iter()
+        .map(|r| r["email"].to_output_string())
+        .collect();
     let unique: std::collections::HashSet<_> = emails.iter().collect();
     assert_eq!(emails.len(), unique.len(), "emails should be unique");
 
@@ -370,10 +404,7 @@ fn test_fixture_coherence_groups() {
     let offices = &ds.entities["Office"];
     for row in &offices.rows {
         let tz = row["timezone"].to_output_string();
-        assert!(
-            tz.contains('/'),
-            "timezone should be IANA format: {tz}"
-        );
+        assert!(tz.contains('/'), "timezone should be IANA format: {tz}");
         let phone = row["phone"].to_output_string();
         assert!(
             phone.starts_with("+1-"),
@@ -443,8 +474,14 @@ fn test_fixture_derived_fields() {
     for row in &products.rows {
         // Verify slug is derived from name
         assert!(row.contains_key("slug"), "Product should have derived slug");
-        assert!(row.contains_key("name_lower"), "Product should have derived name_lower");
-        assert!(row.contains_key("tax_amount"), "Product should have derived tax_amount");
+        assert!(
+            row.contains_key("name_lower"),
+            "Product should have derived name_lower"
+        );
+        assert!(
+            row.contains_key("tax_amount"),
+            "Product should have derived tax_amount"
+        );
     }
 }
 
@@ -477,10 +514,100 @@ fn test_fixture_named_types() {
     assert_eq!(ds.entities["Vendor"].row_count(), 5);
 
     // Named enum Tier should resolve to valid variants
-    let valid_tiers: std::collections::HashSet<&str> =
-        ["free", "basic", "premium", "enterprise"].iter().copied().collect();
+    let valid_tiers: std::collections::HashSet<&str> = ["free", "basic", "premium", "enterprise"]
+        .iter()
+        .copied()
+        .collect();
     for row in &ds.entities["Customer"].rows {
         let tier = row["tier"].to_output_string();
         assert!(valid_tiers.contains(tier.as_str()), "invalid tier: {tier}");
+    }
+}
+
+#[test]
+fn test_fixture_json_schema_constraints() {
+    let ds = parse_and_generate("json_schema_constraints.yaml");
+    let products = &ds.entities["Product"];
+    assert_eq!(products.row_count(), 20);
+
+    for row in &products.rows {
+        // exclusive lower bound: price > 0 (not >= 0)
+        if let Value::Float(price) = &row["price"] {
+            assert!(
+                *price > 0.0,
+                "price should be > 0 (exclusive), got: {price}"
+            );
+        }
+
+        // exclusive upper bound: discount_pct < 100
+        if let Value::Float(d) = &row["discount_pct"] {
+            assert!(
+                *d < 100.0,
+                "discount_pct should be < 100 (exclusive), got: {d}"
+            );
+        }
+
+        // both exclusive: 0 < internal_score < 10
+        if let Value::Float(s) = &row["internal_score"] {
+            assert!(
+                *s > 0.0 && *s < 10.0,
+                "internal_score should be in (0,10), got: {s}"
+            );
+        }
+
+        // multipleOf(0.05): wholesale_price should be a multiple of 0.05
+        if let Value::Float(wp) = &row["wholesale_price"] {
+            let remainder = (*wp / 0.05).round() * 0.05 - *wp;
+            assert!(
+                remainder.abs() < 1e-9,
+                "wholesale_price {wp} is not a multiple of 0.05"
+            );
+        }
+
+        // multipleOf(5): quantity_pack should be a multiple of 5
+        if let Value::Int(qp) = &row["quantity_pack"] {
+            assert!(*qp % 5 == 0, "quantity_pack {qp} is not a multiple of 5");
+        }
+
+        // emin(0): min_order should be > 0 (exclusive)
+        if let Value::Int(mo) = &row["min_order"] {
+            assert!(*mo >= 1, "min_order should be > 0 (exclusive), got: {mo}");
+        }
+
+        // uniqueItems: tags should have no duplicates
+        if let Value::List(tags) = &row["tags"] {
+            let tag_strs: Vec<_> = tags.iter().map(|t| t.to_output_string()).collect();
+            let unique: std::collections::HashSet<_> = tag_strs.iter().collect();
+            assert_eq!(
+                tag_strs.len(),
+                unique.len(),
+                "tags should have unique items"
+            );
+            assert!(!tag_strs.is_empty(), "tags should have at least 1 item");
+            assert!(tag_strs.len() <= 5, "tags should have at most 5 items");
+        }
+
+        // const via @values: api_version should always be "v2"
+        let api = row["api_version"].to_output_string();
+        assert_eq!(api, "v2", "api_version should be const 'v2', got: {api}");
+    }
+
+    // Test dependentRequired: when method is non-null, shipped_at and tracking_number should also be non-null
+    let shipments = &ds.entities["Shipment"];
+    assert_eq!(shipments.row_count(), 15);
+    for row in &shipments.rows {
+        let method = &row["method"];
+        if !method.is_null() {
+            let shipped_at = &row["shipped_at"];
+            let tracking = &row["tracking_number"];
+            assert!(
+                !shipped_at.is_null(),
+                "shipped_at should be non-null when method is non-null"
+            );
+            assert!(
+                !tracking.is_null(),
+                "tracking_number should be non-null when method is non-null"
+            );
+        }
     }
 }

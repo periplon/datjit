@@ -72,9 +72,10 @@ impl OutputWriter for SqlWriter {
         data: &GeneratedDataSet,
         dest: &mut dyn Write,
     ) -> Result<(), DatjitError> {
-        let entity_data = data.entities.get(entity_name).ok_or_else(|| {
-            DatjitError::Output(format!("entity not found: {entity_name}"))
-        })?;
+        let entity_data = data
+            .entities
+            .get(entity_name)
+            .ok_or_else(|| DatjitError::Output(format!("entity not found: {entity_name}")))?;
         write_entity_sql(entity_name, entity_data, self, dest)
     }
 }
@@ -109,14 +110,21 @@ fn write_create_table(
     writer: &SqlWriter,
     dest: &mut dyn Write,
 ) -> Result<(), DatjitError> {
-    let mut w = |s: &str| dest.write_all(s.as_bytes()).map_err(|e| DatjitError::Output(e.to_string()));
+    let mut w = |s: &str| {
+        dest.write_all(s.as_bytes())
+            .map_err(|e| DatjitError::Output(e.to_string()))
+    };
 
     w(&format!("CREATE TABLE {table_name} (\n"))?;
 
     for (i, col) in entity_data.columns.iter().enumerate() {
         let sql_type = infer_sql_type(col, entity_data, writer.dialect);
         let col_name = quote_identifier(col, writer.dialect);
-        let separator = if i < entity_data.columns.len() - 1 { "," } else { "" };
+        let separator = if i < entity_data.columns.len() - 1 {
+            ","
+        } else {
+            ""
+        };
         w(&format!("  {col_name} {sql_type}{separator}\n"))?;
     }
 
@@ -131,7 +139,10 @@ fn write_insert_batch(
     writer: &SqlWriter,
     dest: &mut dyn Write,
 ) -> Result<(), DatjitError> {
-    let mut w = |s: &str| dest.write_all(s.as_bytes()).map_err(|e| DatjitError::Output(e.to_string()));
+    let mut w = |s: &str| {
+        dest.write_all(s.as_bytes())
+            .map_err(|e| DatjitError::Output(e.to_string()))
+    };
 
     let col_names: Vec<String> = entity_data
         .columns
@@ -211,13 +222,8 @@ fn quote_identifier(name: &str, dialect: SqlDialect) -> String {
 fn infer_sql_type(col: &str, entity_data: &EntityData, dialect: SqlDialect) -> String {
     // Look at the first non-null value for this column to infer its type
     let first_value = entity_data.rows.iter().find_map(|row| {
-        row.get(col).and_then(|v| {
-            if v.is_null() {
-                None
-            } else {
-                Some(v)
-            }
-        })
+        row.get(col)
+            .and_then(|v| if v.is_null() { None } else { Some(v) })
     });
 
     match first_value {

@@ -57,11 +57,8 @@ pub fn run(args: InspectArgs) -> Result<()> {
 
         for (field_name, field) in &entity.fields {
             let type_str = format!("{:?}", field.type_expr);
-            let decorators: Vec<String> = field
-                .decorators
-                .iter()
-                .map(|d| format!("{d:?}"))
-                .collect();
+            let decorators: Vec<String> =
+                field.decorators.iter().map(|d| format!("{d:?}")).collect();
             let dec_str = if decorators.is_empty() {
                 String::new()
             } else {
@@ -88,9 +85,7 @@ pub fn run(args: InspectArgs) -> Result<()> {
                 TypeExpr::Reference(ReferenceType::BelongsTo { target, .. }) => {
                     Some(target.clone())
                 }
-                TypeExpr::Reference(ReferenceType::ManyToMany { target }) => {
-                    Some(target.clone())
-                }
+                TypeExpr::Reference(ReferenceType::ManyToMany { target }) => Some(target.clone()),
                 _ => None,
             })
             .collect();
@@ -122,10 +117,7 @@ pub fn run(args: InspectArgs) -> Result<()> {
         println!();
         println!("Enums ({}):", doc.enums.len());
         for (name, enum_def) in &doc.enums {
-            let has_descriptions = enum_def
-                .variants
-                .iter()
-                .any(|v| v.description.is_some());
+            let has_descriptions = enum_def.variants.iter().any(|v| v.description.is_some());
             if has_descriptions {
                 println!("  {name}: {} variants", enum_def.variants.len());
                 for v in &enum_def.variants {
@@ -199,6 +191,52 @@ pub fn run(args: InspectArgs) -> Result<()> {
 
             if let Some(delete) = &tools.delete {
                 println!("    DELETE ({})", delete.strategy);
+            }
+
+            // Display triggers
+            if !tools.triggers.is_empty() {
+                println!("    TRIGGERS:");
+                for trig in &tools.triggers {
+                    let on = trig.on_fields.join(", ");
+                    if !trig.recomputed_fields.is_empty() {
+                        println!(
+                            "      on({on}) -> recompute: {}",
+                            trig.recomputed_fields.join(", ")
+                        );
+                    }
+                    if !trig.validated_rules.is_empty() {
+                        println!(
+                            "      on({on}) -> validate: {}",
+                            trig.validated_rules.join(", ")
+                        );
+                    }
+                }
+            }
+        }
+
+        // Display MCP tools from document
+        if !doc.mcp_tools.is_empty() {
+            println!();
+            println!("MCP Tools ({}):", doc.mcp_tools.len());
+            for (name, tool) in &doc.mcp_tools {
+                println!("  {name} ({:?})", tool.kind);
+                println!("    {}", tool.description);
+                if !tool.input.is_empty() {
+                    let params: Vec<String> = tool
+                        .input
+                        .iter()
+                        .map(|(k, v)| format!("{k}: {v}"))
+                        .collect();
+                    println!("    input: {}", params.join(", "));
+                }
+                if !tool.output.is_empty() {
+                    let params: Vec<String> = tool
+                        .output
+                        .iter()
+                        .map(|(k, v)| format!("{k}: {v}"))
+                        .collect();
+                    println!("    output: {}", params.join(", "));
+                }
             }
         }
     }

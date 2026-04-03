@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::entity::Entity;
 use super::enum_def::EnumDef;
+use super::mcp_tool::McpToolDef;
 use super::rule::Rule;
 
 /// The top-level DDL document representing an entire parsed schema.
@@ -32,6 +33,8 @@ pub struct DdlDocument {
     pub rules: Vec<Rule>,
     /// Tool overrides per entity
     pub tools: HashMap<String, ToolOverrides>,
+    /// MCP tool declarations
+    pub mcp_tools: IndexMap<String, McpToolDef>,
 }
 
 /// Volume specification for an entity.
@@ -149,6 +152,7 @@ impl DdlDocument {
             types: HashMap::new(),
             rules: Vec::new(),
             tools: HashMap::new(),
+            mcp_tools: IndexMap::new(),
         }
     }
 }

@@ -136,7 +136,10 @@ pub fn parse_type(input: &str) -> Result<TypeExpr, DatjitError> {
                 _ => {
                     // Could be a semantic type with params like currency(EUR) or text.paragraphs(3)
                     if let Some(mut st) = SemanticType::parse(name) {
-                        st.params = params_str.split(',').map(|s| s.trim().to_string()).collect();
+                        st.params = params_str
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .collect();
                         return Ok(TypeExpr::Semantic(st));
                     }
                 }

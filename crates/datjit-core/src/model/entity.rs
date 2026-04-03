@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use super::decorator::Decorator;
+use super::trigger::Trigger;
 use crate::types::TypeExpr;
 
 /// An entity definition from the `entities:` section.
@@ -14,6 +15,8 @@ pub struct Entity {
     pub fields: IndexMap<String, Field>,
     /// Coherence groups from `_coherence`
     pub coherence_groups: IndexMap<String, Vec<String>>,
+    /// Triggers from `_triggers`
+    pub triggers: Vec<Trigger>,
 }
 
 /// A field within an entity.
@@ -33,6 +36,7 @@ impl Entity {
             meta: Vec::new(),
             fields: IndexMap::new(),
             coherence_groups: IndexMap::new(),
+            triggers: Vec::new(),
         }
     }
 
@@ -106,6 +110,18 @@ impl Field {
         self.decorators
             .iter()
             .any(|d| matches!(d, Decorator::Derived(_)))
+    }
+
+    pub fn is_computed(&self) -> bool {
+        self.decorators
+            .iter()
+            .any(|d| matches!(d, Decorator::Compute(_)))
+    }
+
+    pub fn is_default_chain(&self) -> bool {
+        self.decorators
+            .iter()
+            .any(|d| matches!(d, Decorator::DefaultChain { .. }))
     }
 }
 

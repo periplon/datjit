@@ -11,6 +11,21 @@ pub struct InferredTools {
     pub create: Option<CreateTool>,
     pub update: Option<UpdateTool>,
     pub delete: Option<DeleteTool>,
+    /// Custom MCP tools declared in the DDL schema.
+    pub custom_tools: Vec<super::mcp_tool::McpToolDef>,
+    /// Trigger metadata for field change propagation.
+    pub triggers: Vec<TriggerInfo>,
+}
+
+/// Trigger metadata exported for MCP clients.
+#[derive(Debug, Clone)]
+pub struct TriggerInfo {
+    /// Fields that fire this trigger.
+    pub on_fields: Vec<String>,
+    /// Fields that get recomputed.
+    pub recomputed_fields: Vec<String>,
+    /// Rules that get validated.
+    pub validated_rules: Vec<String>,
 }
 
 /// List tool with filtering, sorting, searching, and pagination.
@@ -52,7 +67,10 @@ pub fn infer_tools(entity: &Entity) -> InferredTools {
     let is_readonly = entity.is_readonly();
     let is_immutable = entity.is_immutable();
     let has_no_delete = entity.meta.iter().any(|d| matches!(d, Decorator::NoDelete));
-    let has_soft_delete = entity.meta.iter().any(|d| matches!(d, Decorator::SoftDelete));
+    let has_soft_delete = entity
+        .meta
+        .iter()
+        .any(|d| matches!(d, Decorator::SoftDelete));
 
     let pk_name = entity
         .primary_key()
@@ -103,6 +121,17 @@ pub fn infer_tools(entity: &Entity) -> InferredTools {
         Some(DeleteTool { strategy })
     };
 
+    // Build trigger info from entity triggers
+    let triggers: Vec<TriggerInfo> = entity
+        .triggers
+        .iter()
+        .map(|t| TriggerInfo {
+            on_fields: t.on.clone(),
+            recomputed_fields: t.recompute.clone(),
+            validated_rules: t.validate.clone(),
+        })
+        .collect();
+
     InferredTools {
         entity_name: entity.name.clone(),
         list,
@@ -110,6 +139,8 @@ pub fn infer_tools(entity: &Entity) -> InferredTools {
         create,
         update,
         delete,
+        custom_tools: Vec::new(),
+        triggers,
     }
 }
 
@@ -119,6 +150,15 @@ fn infer_list_tool(entity: &Entity, page_size: usize) -> ListTool {
     let mut search_fields = Vec::new();
 
     for field in entity.fields.values() {
+        // Skip @write_only fields from list output
+        if field
+            .decorators
+            .iter()
+            .any(|d| matches!(d, Decorator::WriteOnly))
+        {
+            continue;
+        }
+
         // Filters
         if is_filterable(field) {
             filters.push(field.name.clone());
@@ -301,6 +341,7 @@ mod tests {
             meta,
             fields: field_map,
             coherence_groups: IndexMap::new(),
+            triggers: Vec::new(),
         }
     }
 
@@ -362,18 +403,13 @@ mod tests {
                     .with_decorators(vec![Decorator::Auto]),
                 Field::new(
                     "status",
-                    TypeExpr::Enum(EnumRef::Inline(vec![
-                        "active".into(),
-                        "inactive".into(),
-                    ])),
+                    TypeExpr::Enum(EnumRef::Inline(vec!["active".into(), "inactive".into()])),
                 ),
                 Field::new("bio", TypeExpr::Primitive(PrimitiveType::String(None)))
                     .with_decorators(vec![Decorator::Optional]),
-                Field::new("score", TypeExpr::Primitive(PrimitiveType::Int(None)))
-                    .with_decorators(vec![
-                        Decorator::Index,
-                        Decorator::Default(LiteralValue::Int(0)),
-                    ]),
+                Field::new("score", TypeExpr::Primitive(PrimitiveType::Int(None))).with_decorators(
+                    vec![Decorator::Index, Decorator::Default(LiteralValue::Int(0))],
+                ),
             ],
         );
 

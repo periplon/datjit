@@ -21,6 +21,15 @@ use crate::updater::{download, CorpusSource, CorpusUpdateReport};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountingPlanEntry {
+    pub country: String,
+    pub code: String,
+    pub name: String,
+    pub name_en: String,
+    pub level: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FoodEntry {
     pub name: String,
     pub category: String,
@@ -189,6 +198,13 @@ pub fn extra_known_sources() -> Vec<CorpusSource> {
             url: "https://daten.offeneregister.de/de_companies_ocdata.jsonl.bz2".into(),
             license: "CC0".into(),
             category: "company".into(),
+        },
+        CorpusSource {
+            name: "European Accounting Plans".into(),
+            description: "Charts of accounts for ES, FR, DE, IT, PT, BE from Odoo ERP localizations".into(),
+            url: "https://github.com/odoo/odoo/tree/18.0/addons/l10n_es/data/template".into(),
+            license: "LGPL-3".into(),
+            category: "accounting".into(),
         },
     ]
 }
@@ -389,6 +405,28 @@ pub fn download_extra_sources(
             report
                 .files_failed
                 .push(("German Handelsregister".into(), msg));
+        }
+    }
+
+    // 19. European Accounting Plans
+    on_progress("Downloading European Accounting Plans (Odoo l10n)...");
+    match download_and_process_accounting_plans(client, temp_shared) {
+        Ok(size) => {
+            report
+                .files_updated
+                .push("shared/accounting_plans.json".into());
+            report.total_size_bytes += size;
+            on_progress(&format!(
+                "  shared/accounting_plans.json ({} KB)",
+                size / 1024
+            ));
+        }
+        Err(e) => {
+            let msg = format!("{e}");
+            on_progress(&format!("  FAILED: {msg}"));
+            report
+                .files_failed
+                .push(("European Accounting Plans".into(), msg));
         }
     }
 }
@@ -1403,8 +1441,193 @@ fn download_and_process_german_companies(
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// 19. European Accounting Plans
 // ---------------------------------------------------------------------------
+
+/// Odoo l10n CSV sources for European accounting plans.
+/// Each entry: (country_code, url, local_name_column, has_group_file)
+const ACCOUNTING_PLAN_SOURCES: &[(&str, &str, &str)] = &[
+    (
+        "ES",
+        "https://raw.githubusercontent.com/odoo/odoo/18.0/addons/l10n_es/data/template/account.group-es_common.csv",
+        "name@es",
+    ),
+    (
+        "FR",
+        "https://raw.githubusercontent.com/odoo/odoo/18.0/addons/l10n_fr_account/data/template/account.group-fr.csv",
+        "name@fr",
+    ),
+    (
+        "PT",
+        "https://raw.githubusercontent.com/odoo/odoo/18.0/addons/l10n_pt/data/template/account.group-pt.csv",
+        "name@pt",
+    ),
+    (
+        "BE",
+        "https://raw.githubusercontent.com/odoo/odoo/18.0/addons/l10n_be/data/template/account.group-be.csv",
+        "name@fr",
+    ),
+];
+
+/// Account-level CSV sources (for countries without a group file).
+const ACCOUNTING_ACCOUNT_SOURCES: &[(&str, &str, &str)] = &[
+    (
+        "DE",
+        "https://raw.githubusercontent.com/odoo/odoo/18.0/addons/l10n_de/data/template/account.account-de_skr03.csv",
+        "name@de",
+    ),
+    (
+        "IT",
+        "https://raw.githubusercontent.com/odoo/odoo/18.0/addons/l10n_it/data/template/account.account-it.csv",
+        "name@it",
+    ),
+];
+
+/// Download European accounting plans from Odoo l10n CSVs and produce accounting_plans.json.
+fn download_and_process_accounting_plans(
+    client: &reqwest::blocking::Client,
+    dest_dir: &Path,
+) -> Result<u64, DatjitError> {
+    let mut entries: Vec<AccountingPlanEntry> = Vec::new();
+
+    // Process group-file sources (ES, FR, PT, BE)
+    for &(country, url, local_col) in ACCOUNTING_PLAN_SOURCES {
+        match download(client, url) {
+            Ok(data) => {
+                let text = String::from_utf8_lossy(&data);
+                let mut rdr = csv::ReaderBuilder::new()
+                    .has_headers(true)
+                    .from_reader(text.as_bytes());
+                let headers = rdr
+                    .headers()
+                    .map_err(|e| DatjitError::Corpus(format!("CSV headers ({country}): {e}")))?
+                    .clone();
+                for result in rdr.records() {
+                    let record = match result {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let code_idx = headers.iter().position(|h| h == "code_prefix_start");
+                    let name_en_idx = headers.iter().position(|h| h == "name");
+                    let name_local_idx = headers.iter().position(|h| h == local_col);
+
+                    let code = code_idx
+                        .and_then(|i| record.get(i))
+                        .unwrap_or("")
+                        .to_string();
+                    let name_en = name_en_idx
+                        .and_then(|i| record.get(i))
+                        .unwrap_or("")
+                        .to_string();
+                    let name_local = name_local_idx
+                        .and_then(|i| record.get(i))
+                        .unwrap_or(&name_en)
+                        .to_string();
+
+                    if code.is_empty() {
+                        continue;
+                    }
+
+                    let level = code.len() as u8;
+                    entries.push(AccountingPlanEntry {
+                        country: country.to_string(),
+                        code,
+                        name: name_local,
+                        name_en,
+                        level,
+                    });
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to download accounting plan for {country}: {e}");
+            }
+        }
+    }
+
+    // Process account-level sources (DE, IT) — derive group structure from account codes
+    for &(country, url, local_col) in ACCOUNTING_ACCOUNT_SOURCES {
+        match download(client, url) {
+            Ok(data) => {
+                let text = String::from_utf8_lossy(&data);
+                let mut rdr = csv::ReaderBuilder::new()
+                    .has_headers(true)
+                    .from_reader(text.as_bytes());
+                let headers = rdr
+                    .headers()
+                    .map_err(|e| DatjitError::Corpus(format!("CSV headers ({country}): {e}")))?
+                    .clone();
+
+                // Collect unique 1-digit and 2-digit prefixes with first seen name
+                let mut seen_groups: HashMap<String, (String, String)> = HashMap::new();
+
+                for result in rdr.records() {
+                    let record = match result {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let code_idx = headers.iter().position(|h| h == "code");
+                    let name_en_idx = headers.iter().position(|h| h == "name");
+                    let name_local_idx = headers.iter().position(|h| h == local_col);
+
+                    let code = code_idx
+                        .and_then(|i| record.get(i))
+                        .unwrap_or("")
+                        .to_string();
+                    let name_en = name_en_idx
+                        .and_then(|i| record.get(i))
+                        .unwrap_or("")
+                        .to_string();
+                    let name_local = name_local_idx
+                        .and_then(|i| record.get(i))
+                        .unwrap_or(&name_en)
+                        .to_string();
+
+                    if code.is_empty() {
+                        continue;
+                    }
+
+                    // Extract 1-digit class and 2-digit subgroup
+                    if code.len() >= 1 {
+                        let cls = code[..1].to_string();
+                        seen_groups
+                            .entry(cls)
+                            .or_insert_with(|| (name_local.clone(), name_en.clone()));
+                    }
+                    if code.len() >= 2 {
+                        let sub = code[..2].to_string();
+                        seen_groups
+                            .entry(sub)
+                            .or_insert_with(|| (name_local.clone(), name_en.clone()));
+                    }
+                }
+
+                for (code, (name_local, name_en)) in &seen_groups {
+                    let level = code.len() as u8;
+                    entries.push(AccountingPlanEntry {
+                        country: country.to_string(),
+                        code: code.clone(),
+                        name: name_local.clone(),
+                        name_en: name_en.clone(),
+                        level,
+                    });
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to download accounting plan for {country}: {e}");
+            }
+        }
+    }
+
+    entries.sort_by(|a, b| a.country.cmp(&b.country).then_with(|| a.code.cmp(&b.code)));
+
+    let json = serde_json::to_string_pretty(&entries)
+        .map_err(|e| DatjitError::Corpus(format!("serialize accounting plans: {e}")))?;
+    let path = dest_dir.join("accounting_plans.json");
+    fs::write(&path, &json)
+        .map_err(|e| DatjitError::Corpus(format!("write accounting plans: {e}")))?;
+
+    Ok(json.len() as u64)
+}
 
 #[cfg(test)]
 mod tests {
@@ -1413,7 +1636,7 @@ mod tests {
     #[test]
     fn test_extra_known_sources_count() {
         let sources = extra_known_sources();
-        assert_eq!(sources.len(), 11);
+        assert_eq!(sources.len(), 12);
     }
 
     #[test]
@@ -1438,6 +1661,7 @@ mod tests {
         assert!(names.contains(&"CLDR Locale Formats"));
         assert!(names.contains(&"Best Buy Open Products"));
         assert!(names.contains(&"Wikidata Companies"));
+        assert!(names.contains(&"European Accounting Plans"));
     }
 
     #[test]

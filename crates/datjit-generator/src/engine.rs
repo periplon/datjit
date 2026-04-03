@@ -8,7 +8,7 @@ use datjit_core::types::{EnumRef, TypeExpr};
 use datjit_core::value::Value;
 
 use crate::coherence::generate_coherence_groups;
-use crate::constraint::enforce_rules;
+use crate::constraint::{enforce_cross_row_rules, enforce_rules};
 use crate::context::GenerationContext;
 use crate::decorator_apply::apply_decorators;
 use crate::derived_gen::evaluate_derived;
@@ -95,8 +95,7 @@ impl DataGenerator for GenerationEngine {
                     row.clear();
 
                     // Step 1: Generate coherence groups (including implicit @from fields)
-                    let coherence_values =
-                        generate_coherence_groups(entity, &mut ctx)?;
+                    let coherence_values = generate_coherence_groups(entity, &mut ctx)?;
                     let coherence_field_set: std::collections::HashSet<&String> =
                         coherence_values.keys().collect();
                     for (k, v) in &coherence_values {
@@ -106,14 +105,13 @@ impl DataGenerator for GenerationEngine {
                     // Step 2: Generate non-derived, non-coherence fields
                     for (field_name, field) in &entity.fields {
                         // Skip fields already populated by coherence groups
-                        if coherence_field_set.contains(field_name)
-                            && row.contains_key(field_name)
+                        if coherence_field_set.contains(field_name) && row.contains_key(field_name)
                         {
                             continue;
                         }
 
-                        // Skip derived fields (evaluated later)
-                        if field.is_derived() {
+                        // Skip derived, computed, and default_chain fields (evaluated later)
+                        if field.is_derived() || field.is_computed() || field.is_default_chain() {
                             row.insert(field_name.clone(), Value::Null);
                             continue;
                         }
@@ -156,6 +154,134 @@ impl DataGenerator for GenerationEngine {
                         row.insert(field_name.clone(), value);
                     }
 
+                    // Step 2.5: Enforce @dependent_required — if a field with this
+                    // decorator is non-null, ensure all dependent fields are also non-null
+                    for (field_name, field) in &entity.fields {
+                        for dec in &field.decorators {
+                            if let Decorator::DependentRequired(deps) = dec {
+                                let is_present =
+                                    row.get(field_name).map(|v| !v.is_null()).unwrap_or(false);
+                                if is_present {
+                                    for dep_name in deps {
+                                        if let Some(val) = row.get(dep_name) {
+                                            if val.is_null() {
+                                                // Regenerate the dependent field as non-null
+                                                if let Some(dep_field) = entity.fields.get(dep_name)
+                                                {
+                                                    let new_val = generate_field(
+                                                        dep_field,
+                                                        entity_name,
+                                                        &row,
+                                                        &mut ctx,
+                                                    )?;
+                                                    let new_val = apply_decorators(
+                                                        new_val,
+                                                        dep_field,
+                                                        &mut ctx.rng,
+                                                    )?;
+                                                    // If still null, generate primitive fallback
+                                                    let new_val = if new_val.is_null() {
+                                                        Value::String("required".into())
+                                                    } else {
+                                                        new_val
+                                                    };
+                                                    row.insert(dep_name.clone(), new_val);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Step 2.6: Evaluate @default_chain fields
+                    for (field_name, field) in &entity.fields {
+                        if !field.is_default_chain() {
+                            continue;
+                        }
+                        for dec in &field.decorators {
+                            if let Decorator::DefaultChain {
+                                sources,
+                                when,
+                                fallback,
+                            } = dec
+                            {
+                                // Check `when` condition
+                                let should_eval = match when {
+                                    Some(cond_expr) => {
+                                        let cond =
+                                            evaluate_derived(cond_expr, &row, &ctx.generated)?;
+                                        !cond.is_null() && cond != Value::Bool(false)
+                                    }
+                                    None => true,
+                                };
+
+                                if should_eval {
+                                    let mut resolved = None;
+                                    for source in sources {
+                                        let val =
+                                            resolve_chain_source(source, &row, &ctx.generated);
+                                        if !val.is_null() {
+                                            resolved = Some(val);
+                                            break;
+                                        }
+                                    }
+                                    let val = resolved.unwrap_or_else(|| {
+                                        fallback
+                                            .as_ref()
+                                            .map(|fb| {
+                                                evaluate_derived(fb, &row, &ctx.generated)
+                                                    .unwrap_or(Value::Null)
+                                            })
+                                            .unwrap_or(Value::Null)
+                                    });
+                                    row.insert(field_name.clone(), val);
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // Step 2.7: Evaluate @compute fields
+                    for (field_name, field) in &entity.fields {
+                        if !field.is_computed() {
+                            continue;
+                        }
+                        for dec in &field.decorators {
+                            if let Decorator::Compute(branches) = dec {
+                                let mut matched = false;
+                                for branch in branches {
+                                    if let Some(when_expr) = &branch.when {
+                                        let cond =
+                                            evaluate_derived(when_expr, &row, &ctx.generated)?;
+                                        if !cond.is_null() && cond != Value::Bool(false) {
+                                            let val = evaluate_derived(
+                                                &branch.value,
+                                                &row,
+                                                &ctx.generated,
+                                            )?;
+                                            row.insert(field_name.clone(), val);
+                                            matched = true;
+                                            break;
+                                        }
+                                    } else {
+                                        // else branch
+                                        let val =
+                                            evaluate_derived(&branch.value, &row, &ctx.generated)?;
+                                        row.insert(field_name.clone(), val);
+                                        matched = true;
+                                        break;
+                                    }
+                                }
+                                if !matched {
+                                    row.insert(field_name.clone(), Value::Null);
+                                }
+                                break;
+                            }
+                        }
+                    }
+
                     // Step 3: Evaluate @derived fields
                     for (field_name, field) in &entity.fields {
                         if !field.is_derived() {
@@ -163,8 +289,7 @@ impl DataGenerator for GenerationEngine {
                         }
                         for dec in &field.decorators {
                             if let Decorator::Derived(expr) = dec {
-                                let derived_val =
-                                    evaluate_derived(expr, &row, &ctx.generated)?;
+                                let derived_val = evaluate_derived(expr, &row, &ctx.generated)?;
                                 row.insert(field_name.clone(), derived_val);
                                 break;
                             }
@@ -181,13 +306,8 @@ impl DataGenerator for GenerationEngine {
                     }
 
                     // Enforce rules after generating the row
-                    let rule_result = enforce_rules(
-                        &doc.rules,
-                        entity_name,
-                        &row,
-                        &ctx.generated,
-                        &mut ctx.rng,
-                    );
+                    let rule_result =
+                        enforce_rules(&doc.rules, entity_name, &row, &ctx.generated, &mut ctx.rng);
 
                     match rule_result {
                         Ok(()) => break,
@@ -208,6 +328,15 @@ impl DataGenerator for GenerationEngine {
                     .push(row);
             }
 
+            // Step 6: Cross-row validation post-pass
+            enforce_cross_row_rules(
+                &doc.rules,
+                entity_name,
+                &mut entity_data.rows,
+                &mut ctx.generated,
+                &mut ctx.rng,
+            );
+
             dataset.entities.insert(entity_name.clone(), entity_data);
         }
 
@@ -217,6 +346,42 @@ impl DataGenerator for GenerationEngine {
 
 /// Resolve `TypeExpr::Named` references against the document's enum definitions.
 /// Converts e.g. `TypeExpr::Named("TaskStatus")` → `TypeExpr::Enum(EnumRef::Inline(variants))`.
+/// Resolve a default_chain source field path against the current row and all generated data.
+/// Supports both simple field refs ("field") and reference traversal ("ref.field").
+fn resolve_chain_source(
+    path: &datjit_core::model::decorator::FieldPath,
+    row: &IndexMap<String, Value>,
+    all_data: &IndexMap<String, Vec<IndexMap<String, Value>>>,
+) -> Value {
+    if path.segments.is_empty() {
+        return Value::Null;
+    }
+
+    if path.segments.len() == 1 {
+        return row.get(&path.segments[0]).cloned().unwrap_or(Value::Null);
+    }
+
+    // Multi-segment: e.g., "wo.gl_acct" — follow reference
+    let ref_field = &path.segments[0];
+    let target_field = &path.segments[1];
+
+    match row.get(ref_field) {
+        Some(Value::Ref(entity_name, pk_value)) => {
+            if let Some(entity_rows) = all_data.get(entity_name.as_str()) {
+                for entity_row in entity_rows {
+                    if let Some(first_val) = entity_row.values().next() {
+                        if first_val == pk_value.as_ref() {
+                            return entity_row.get(target_field).cloned().unwrap_or(Value::Null);
+                        }
+                    }
+                }
+            }
+            Value::Null
+        }
+        _ => Value::Null,
+    }
+}
+
 fn resolve_named_types(doc: &mut DdlDocument) {
     let enum_variants: std::collections::HashMap<String, Vec<String>> = doc
         .enums
@@ -246,9 +411,7 @@ fn generate_primary_key(_entity_name: &str, _ctx: &mut GenerationContext) -> Val
 
 fn generate_auto_field(field_name: &str, _ctx: &mut GenerationContext) -> Value {
     match field_name {
-        "created_at" | "updated_at" => {
-            Value::DateTime("2025-01-15T10:30:00".into())
-        }
+        "created_at" | "updated_at" => Value::DateTime("2025-01-15T10:30:00".into()),
         "version" => Value::Int(1),
         _ => Value::Null,
     }
@@ -273,7 +436,10 @@ mod tests {
         );
         user.fields.insert(
             "name".into(),
-            Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full"))),
+            Field::new(
+                "name",
+                TypeExpr::Semantic(SemanticType::new("person", "full")),
+            ),
         );
         user.fields.insert(
             "email".into(),
@@ -319,7 +485,10 @@ mod tests {
             .map(|r| r["email"].to_output_string())
             .collect();
 
-        let unique_count = emails.iter().collect::<std::collections::HashSet<_>>().len();
+        let unique_count = emails
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         assert_eq!(unique_count, emails.len(), "emails should be unique");
     }
 
@@ -412,13 +581,23 @@ mod tests {
         // Define named enums
         doc.enums.insert(
             "Priority".into(),
-            datjit_core::model::enum_def::EnumDef::simple("Priority", vec!["critical", "high", "medium", "low"]),
+            datjit_core::model::enum_def::EnumDef::simple(
+                "Priority",
+                vec!["critical", "high", "medium", "low"],
+            ),
         );
         doc.enums.insert(
             "TaskStatus".into(),
             datjit_core::model::enum_def::EnumDef::simple(
                 "TaskStatus",
-                vec!["backlog", "todo", "in_progress", "review", "done", "cancelled"],
+                vec![
+                    "backlog",
+                    "todo",
+                    "in_progress",
+                    "review",
+                    "done",
+                    "cancelled",
+                ],
             ),
         );
 
@@ -446,12 +625,21 @@ mod tests {
         let dataset = engine.generate(&doc).unwrap();
 
         let valid_priorities: std::collections::HashSet<&str> =
-            ["critical", "high", "medium", "low"].iter().copied().collect();
-        let valid_statuses: std::collections::HashSet<&str> =
-            ["backlog", "todo", "in_progress", "review", "done", "cancelled"]
+            ["critical", "high", "medium", "low"]
                 .iter()
                 .copied()
                 .collect();
+        let valid_statuses: std::collections::HashSet<&str> = [
+            "backlog",
+            "todo",
+            "in_progress",
+            "review",
+            "done",
+            "cancelled",
+        ]
+        .iter()
+        .copied()
+        .collect();
 
         for row in &dataset.entities["Task"].rows {
             let priority = row["priority"].to_output_string();
@@ -482,7 +670,10 @@ mod tests {
         );
         user.fields.insert(
             "name".into(),
-            Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full"))),
+            Field::new(
+                "name",
+                TypeExpr::Semantic(SemanticType::new("person", "full")),
+            ),
         );
         user.fields.insert(
             "email".into(),
@@ -505,11 +696,7 @@ mod tests {
             let email = row["email"].to_output_string();
             let parts: Vec<&str> = name.split_whitespace().collect();
             if parts.len() >= 2 {
-                let prefix = format!(
-                    "{}.{}",
-                    parts[0].to_lowercase(),
-                    parts[1].to_lowercase()
-                );
+                let prefix = format!("{}.{}", parts[0].to_lowercase(), parts[1].to_lowercase());
                 assert!(
                     email.starts_with(&prefix),
                     "email '{}' not derived from name '{}'",

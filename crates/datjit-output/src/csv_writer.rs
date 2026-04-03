@@ -32,9 +32,10 @@ impl OutputWriter for CsvWriter {
         data: &GeneratedDataSet,
         dest: &mut dyn Write,
     ) -> Result<(), DatjitError> {
-        let entity_data = data.entities.get(entity_name).ok_or_else(|| {
-            DatjitError::Output(format!("entity not found: {entity_name}"))
-        })?;
+        let entity_data = data
+            .entities
+            .get(entity_name)
+            .ok_or_else(|| DatjitError::Output(format!("entity not found: {entity_name}")))?;
         write_entity_csv(entity_data, dest)
     }
 }
@@ -70,7 +71,8 @@ fn write_entity_csv(
             .map_err(|e| DatjitError::Output(e.to_string()))?;
     }
 
-    wtr.flush().map_err(|e| DatjitError::Output(e.to_string()))?;
+    wtr.flush()
+        .map_err(|e| DatjitError::Output(e.to_string()))?;
     Ok(())
 }
 

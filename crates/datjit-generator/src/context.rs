@@ -46,12 +46,7 @@ impl GenerationContext {
     }
 
     /// Check if a value is unique for the given entity/field, and insert it.
-    pub fn check_and_insert_unique(
-        &mut self,
-        entity: &str,
-        field: &str,
-        value: &Value,
-    ) -> bool {
+    pub fn check_and_insert_unique(&mut self, entity: &str, field: &str, value: &Value) -> bool {
         let key = (entity.to_string(), field.to_string());
         let set = self.unique_sets.entry(key).or_default();
         set.insert(value.clone())

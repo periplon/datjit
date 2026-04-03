@@ -24,6 +24,13 @@ pub enum DatjitError {
     #[error("Constraint violation: {0}")]
     ConstraintViolation(String),
 
+    #[error("Constraint violation in {entity}: {message}")]
+    ConstraintViolationAnnotated {
+        entity: String,
+        message: String,
+        fields: Vec<String>,
+    },
+
     #[error("Uniqueness exhausted for {entity}.{field} after {attempts} attempts")]
     UniquenessExhausted {
         entity: String,

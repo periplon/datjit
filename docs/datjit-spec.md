@@ -247,19 +247,30 @@ Decorators are annotations prefixed with `@` that modify field behavior for gene
 
 ### 3.2 Value Constraints
 
-| Decorator                 | Meaning                                    |
-|---------------------------|--------------------------------------------|
-| `@range(lo..hi)`          | Inclusive numeric or date range             |
-| `@range(2020..now)`       | `now` = generation timestamp               |
-| `@min(n)`                 | Minimum value                              |
-| `@max(n)`                 | Maximum value                              |
-| `@len(lo..hi)`            | String/list length range                   |
-| `@pattern("regex")`       | Value must match regex                     |
-| `@pattern("SKU-{AA}-{0000}")` | Template pattern (see §3.7)           |
-| `@values(a,b,c)`          | Allowed values (non-enum shorthand)       |
-| `@not_empty`              | String/list must have length ≥ 1           |
-| `@optional`               | Field may be omitted (null)                |
-| `@default(val)`           | Default value if not provided              |
+| Decorator                      | Meaning                                         |
+|--------------------------------|-------------------------------------------------|
+| `@range(lo..hi)`               | Inclusive numeric or date range                  |
+| `@range(lo<..hi)`              | Exclusive lower bound (lo < value ≤ hi)         |
+| `@range(lo..<hi)`              | Exclusive upper bound (lo ≤ value < hi)         |
+| `@range(lo<..<hi)`             | Both bounds exclusive (lo < value < hi)         |
+| `@range(2020..now)`            | `now` = generation timestamp                    |
+| `@min(n)`                      | Minimum value (inclusive)                       |
+| `@max(n)`                      | Maximum value (inclusive)                       |
+| `@emin(n)`                     | Minimum value (exclusive, i.e. value > n)       |
+| `@emax(n)`                     | Maximum value (exclusive, i.e. value < n)       |
+| `@multiple_of(n)`              | Value is a multiple of n (e.g. 0.05 for cents)  |
+| `@len(lo..hi)`                 | String/list length range (minItems/maxItems for lists) |
+| `@pattern("regex")`            | Value must match regex                          |
+| `@pattern("SKU-{AA}-{0000}")` | Template pattern (see §3.7)                      |
+| `@values(a,b,c)`               | Allowed values (non-enum shorthand); single value = JSON Schema `const` |
+| `@unique_items`                | List elements must be unique (JSON Schema `uniqueItems`) |
+| `@not_empty`                   | String/list must have length ≥ 1                |
+| `@optional`                    | Field may be omitted (null)                     |
+| `@default(val)`                | Default value if not provided                   |
+| `@dependent_required(f1,f2)`   | If this field is non-null, f1 and f2 must also be non-null |
+| `@deprecated`                  | Marks field as deprecated (metadata only)       |
+| `@write_only`                  | Field is set-only, excluded from read/list outputs |
+| `@examples("v1","v2")`         | Example values for documentation                |
 
 ### 3.3 Distribution Hints
 

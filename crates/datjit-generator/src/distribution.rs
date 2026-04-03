@@ -120,14 +120,10 @@ mod tests {
             .collect();
 
         let mean = samples.iter().sum::<f64>() / n as f64;
-        let variance =
-            samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n as f64 - 1.0);
+        let variance = samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n as f64 - 1.0);
         let stddev = variance.sqrt();
 
-        assert!(
-            (mean - mu).abs() < 1.5,
-            "mean {mean} too far from {mu}"
-        );
+        assert!((mean - mu).abs() < 1.5, "mean {mean} too far from {mu}");
         assert!(
             (stddev - sigma).abs() < 2.0,
             "stddev {stddev} too far from {sigma}"
@@ -230,18 +226,12 @@ mod tests {
     #[test]
     fn test_weighted() {
         let mut r = rng();
-        let entries = vec![
-            ("high".to_string(), 70.0),
-            ("low".to_string(), 30.0),
-        ];
+        let entries = vec![("high".to_string(), 70.0), ("low".to_string(), 30.0)];
         let n = 10_000;
         let mut counts = vec![0usize; 2];
         for _ in 0..n {
-            let idx = sample_distribution(
-                &Distribution::Weighted(entries.clone()),
-                None,
-                &mut r,
-            ) as usize;
+            let idx = sample_distribution(&Distribution::Weighted(entries.clone()), None, &mut r)
+                as usize;
             counts[idx] += 1;
         }
         let p0 = counts[0] as f64 / n as f64;

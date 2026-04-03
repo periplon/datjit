@@ -7,6 +7,8 @@ use super::decorator::FieldPath;
 pub struct Rule {
     pub expression: RuleExpression,
     pub modifier: RuleModifier,
+    /// Optional user-facing error message when the rule is violated.
+    pub message: Option<String>,
 }
 
 /// The parsed expression of a rule.
@@ -38,6 +40,24 @@ pub enum RuleExpression {
         op: CompOp,
         value: RuleOperand,
     },
+    /// Cross-row validation that runs after all rows of an entity are generated.
+    CrossRow {
+        entity: String,
+        group_by: Option<String>,
+        check: super::decorator::Expression,
+        on_violation: Option<ViolationAction>,
+        /// Probability of intentionally generating violations (for test data).
+        probability: Option<f64>,
+    },
+}
+
+/// Action to take when a cross-row rule is violated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViolationAction {
+    /// Fields to set on violation, e.g. `PR.x1aeplegalerror = 1`.
+    pub set_fields: Vec<(FieldPath, super::decorator::Expression)>,
+    /// User-facing error message template.
+    pub error: Option<String>,
 }
 
 /// The right-hand side of a rule comparison.
@@ -110,6 +130,7 @@ mod tests {
                 right: RuleOperand::FieldPath(FieldPath::parse("Order.placed_at")),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
         assert!(matches!(rule.expression, RuleExpression::Comparison { .. }));
     }

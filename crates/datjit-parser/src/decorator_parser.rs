@@ -84,6 +84,9 @@ pub fn parse_decorator(input: &str) -> Result<Decorator, DatjitError> {
             "set_null" => Ok(Decorator::SetNull),
             "eager" => Ok(Decorator::Eager),
             "lazy" => Ok(Decorator::Lazy),
+            "unique_items" => Ok(Decorator::UniqueItems),
+            "deprecated" => Ok(Decorator::Deprecated),
+            "write_only" => Ok(Decorator::WriteOnly),
             "timestamps" => Ok(Decorator::Timestamps),
             "versioned" => Ok(Decorator::Versioned),
             "strict" => Ok(Decorator::Readonly), // handled in rules, not fields
@@ -103,20 +106,46 @@ pub fn parse_decorator(input: &str) -> Result<Decorator, DatjitError> {
         "range" => parse_range(args_str),
         "min" => {
             let val = parse_range_value(args_str.trim())?;
-            Ok(Decorator::Min(val))
+            Ok(Decorator::Min {
+                value: val,
+                exclusive: false,
+            })
         }
         "max" => {
             let val = parse_range_value(args_str.trim())?;
-            Ok(Decorator::Max(val))
+            Ok(Decorator::Max {
+                value: val,
+                exclusive: false,
+            })
+        }
+        "emin" => {
+            let val = parse_range_value(args_str.trim())?;
+            Ok(Decorator::Min {
+                value: val,
+                exclusive: true,
+            })
+        }
+        "emax" => {
+            let val = parse_range_value(args_str.trim())?;
+            Ok(Decorator::Max {
+                value: val,
+                exclusive: true,
+            })
+        }
+        "multiple_of" => {
+            let step: f64 = args_str.trim().parse().map_err(|_| {
+                DatjitError::parse("decorator", format!("invalid multiple_of: {args_str}"))
+            })?;
+            Ok(Decorator::MultipleOf(step))
         }
         "len" => {
             let (lo, hi) = parse_range_pair(args_str)?;
-            let lo: usize = lo.parse().map_err(|_| {
-                DatjitError::parse("decorator", format!("invalid len lo: {lo}"))
-            })?;
-            let hi: usize = hi.parse().map_err(|_| {
-                DatjitError::parse("decorator", format!("invalid len hi: {hi}"))
-            })?;
+            let lo: usize = lo
+                .parse()
+                .map_err(|_| DatjitError::parse("decorator", format!("invalid len lo: {lo}")))?;
+            let hi: usize = hi
+                .parse()
+                .map_err(|_| DatjitError::parse("decorator", format!("invalid len hi: {hi}")))?;
             Ok(Decorator::Len(lo, hi))
         }
         "pattern" => {
@@ -214,10 +243,22 @@ pub fn parse_decorator(input: &str) -> Result<Decorator, DatjitError> {
             Ok(Decorator::Paginated(size))
         }
         "cacheable" => {
-            let ttl: u64 = args_str.trim().parse().map_err(|_| {
-                DatjitError::parse("decorator", format!("invalid ttl: {args_str}"))
-            })?;
+            let ttl: u64 = args_str
+                .trim()
+                .parse()
+                .map_err(|_| DatjitError::parse("decorator", format!("invalid ttl: {args_str}")))?;
             Ok(Decorator::Cacheable(ttl))
+        }
+        "dependent_required" => {
+            let fields: Vec<String> = args_str.split(',').map(|s| s.trim().to_string()).collect();
+            Ok(Decorator::DependentRequired(fields))
+        }
+        "examples" => {
+            let values: Vec<String> = args_str
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').to_string())
+                .collect();
+            Ok(Decorator::Examples(values))
         }
         "domain" => Ok(Decorator::Domain(args_str.trim().to_string())),
         "locale" => Ok(Decorator::Locale(args_str.trim().to_string())),
@@ -242,21 +283,56 @@ pub fn parse_decorators(inputs: &[String]) -> Result<Vec<Decorator>, DatjitError
 }
 
 fn parse_range(args: &str) -> Result<Decorator, DatjitError> {
-    let (lo_str, hi_str) = parse_range_pair(args)?;
+    // Detect exclusive bounds: <..< (both), <.. (lo exclusive), ..< (hi exclusive)
+    let (lo_str, hi_str, lo_exclusive, hi_exclusive) = parse_range_pair_with_exclusivity(args)?;
     let lo = parse_range_value(&lo_str)?;
     let hi = parse_range_value(&hi_str)?;
-    Ok(Decorator::Range(lo, hi))
+    Ok(Decorator::Range {
+        lo,
+        hi,
+        lo_exclusive,
+        hi_exclusive,
+    })
 }
 
 fn parse_range_pair(input: &str) -> Result<(String, String), DatjitError> {
-    let parts: Vec<&str> = input.splitn(2, "..").collect();
-    if parts.len() != 2 {
+    let (lo, hi, _, _) = parse_range_pair_with_exclusivity(input)?;
+    Ok((lo, hi))
+}
+
+/// Parse a range pair, detecting exclusive bounds via `<..` / `..<` / `<..<` syntax.
+/// Returns (lo_str, hi_str, lo_exclusive, hi_exclusive).
+fn parse_range_pair_with_exclusivity(
+    input: &str,
+) -> Result<(String, String, bool, bool), DatjitError> {
+    // Look for the `..` separator, handling `<..<`, `<..`, `..<` variants
+    let (lo_exclusive, hi_exclusive, split_pos) = if let Some(pos) = input.find("<..<") {
+        (true, true, pos)
+    } else if let Some(pos) = input.find("<..") {
+        // Check it's not `<..<` (already handled above)
+        (true, false, pos)
+    } else if let Some(pos) = input.find("..<") {
+        (false, true, pos)
+    } else if let Some(pos) = input.find("..") {
+        (false, false, pos)
+    } else {
         return Err(DatjitError::parse(
             "decorator",
             format!("expected range with '..' separator, got: {input}"),
         ));
-    }
-    Ok((parts[0].trim().to_string(), parts[1].trim().to_string()))
+    };
+
+    let lo_str = input[..split_pos].trim().to_string();
+    let sep_len = if lo_exclusive && hi_exclusive {
+        4 // <..<
+    } else if lo_exclusive || hi_exclusive {
+        3 // <.. or ..<
+    } else {
+        2 // ..
+    };
+    let hi_str = input[split_pos + sep_len..].trim().to_string();
+
+    Ok((lo_str, hi_str, lo_exclusive, hi_exclusive))
 }
 
 fn parse_range_value(s: &str) -> Result<RangeValue, DatjitError> {
@@ -325,7 +401,12 @@ fn parse_distribution(args: &str) -> Result<Decorator, DatjitError> {
     fn _get_param(params: &[(&str, &str)], key: &str) -> Option<f64> {
         params
             .iter()
-            .find(|(k, _)| *k == key || *k == format!("\u{03bc}").as_str() || *k == format!("\u{03c3}").as_str() || *k == format!("\u{03bb}").as_str())
+            .find(|(k, _)| {
+                *k == key
+                    || *k == format!("\u{03bc}").as_str()
+                    || *k == format!("\u{03c3}").as_str()
+                    || *k == format!("\u{03bb}").as_str()
+            })
             .and_then(|(_, v)| v.parse().ok())
     }
 
@@ -365,10 +446,7 @@ fn parse_distribution(args: &str) -> Result<Decorator, DatjitError> {
             Ok(Decorator::Dist(Distribution::Zipf { s }))
         }
         "bimodal" => {
-            let peaks_str = args
-                .split("peaks=")
-                .nth(1)
-                .unwrap_or("0,1");
+            let peaks_str = args.split("peaks=").nth(1).unwrap_or("0,1");
             let peak_vals: Vec<f64> = peaks_str
                 .split(',')
                 .filter_map(|s| s.trim().parse().ok())
@@ -399,8 +477,7 @@ mod tests {
 
     #[test]
     fn test_split_type_and_decorators() {
-        let (ty, decs) =
-            split_type_and_decorators("currency.usd @range(1..5000) @dist(lognormal)");
+        let (ty, decs) = split_type_and_decorators("currency.usd @range(1..5000) @dist(lognormal)");
         assert_eq!(ty, "currency.usd");
         assert_eq!(decs.len(), 2);
         assert_eq!(decs[0], "@range(1..5000)");
@@ -416,8 +493,7 @@ mod tests {
 
     #[test]
     fn test_split_complex() {
-        let (ty, decs) =
-            split_type_and_decorators("enum(free, pro, enterprise) @dist(70, 25, 5)");
+        let (ty, decs) = split_type_and_decorators("enum(free, pro, enterprise) @dist(70, 25, 5)");
         assert_eq!(ty, "enum(free, pro, enterprise)");
         assert_eq!(decs.len(), 1);
         assert_eq!(decs[0], "@dist(70, 25, 5)");
@@ -448,8 +524,55 @@ mod tests {
     fn test_range_int() {
         let d = parse_decorator("@range(1..5000)").unwrap();
         match d {
-            Decorator::Range(RangeValue::Int(1), RangeValue::Int(5000)) => {}
+            Decorator::Range {
+                lo: RangeValue::Int(1),
+                hi: RangeValue::Int(5000),
+                lo_exclusive: false,
+                hi_exclusive: false,
+            } => {}
             other => panic!("expected Range(1, 5000), got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_range_exclusive_lo() {
+        let d = parse_decorator("@range(0<..100)").unwrap();
+        match d {
+            Decorator::Range {
+                lo: RangeValue::Int(0),
+                hi: RangeValue::Int(100),
+                lo_exclusive: true,
+                hi_exclusive: false,
+            } => {}
+            other => panic!("expected Range(0 exclusive..100), got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_range_exclusive_hi() {
+        let d = parse_decorator("@range(0..<100)").unwrap();
+        match d {
+            Decorator::Range {
+                lo: RangeValue::Int(0),
+                hi: RangeValue::Int(100),
+                lo_exclusive: false,
+                hi_exclusive: true,
+            } => {}
+            other => panic!("expected Range(0..100 exclusive), got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_range_exclusive_both() {
+        let d = parse_decorator("@range(0<..<100)").unwrap();
+        match d {
+            Decorator::Range {
+                lo: RangeValue::Int(0),
+                hi: RangeValue::Int(100),
+                lo_exclusive: true,
+                hi_exclusive: true,
+            } => {}
+            other => panic!("expected Range(0 exclusive..100 exclusive), got: {other:?}"),
         }
     }
 
@@ -458,14 +581,23 @@ mod tests {
         // "2020" without dashes is parsed as integer
         let d = parse_decorator("@range(2020..now)").unwrap();
         match d {
-            Decorator::Range(RangeValue::Int(2020), RangeValue::Now) => {}
+            Decorator::Range {
+                lo: RangeValue::Int(2020),
+                hi: RangeValue::Now,
+                lo_exclusive: false,
+                hi_exclusive: false,
+            } => {}
             other => panic!("expected Range(Int(2020), Now), got: {other:?}"),
         }
 
         // Date with dashes
         let d = parse_decorator("@range(2020-01-01..now)").unwrap();
         match d {
-            Decorator::Range(RangeValue::Date(s), RangeValue::Now) => {
+            Decorator::Range {
+                lo: RangeValue::Date(s),
+                hi: RangeValue::Now,
+                ..
+            } => {
                 assert_eq!(s, "2020-01-01");
             }
             other => panic!("expected Range(Date, Now), got: {other:?}"),
@@ -476,10 +608,35 @@ mod tests {
     fn test_range_relative() {
         let d = parse_decorator("@range(now-90d..now)").unwrap();
         match d {
-            Decorator::Range(RangeValue::Relative(s), RangeValue::Now) => {
+            Decorator::Range {
+                lo: RangeValue::Relative(s),
+                hi: RangeValue::Now,
+                ..
+            } => {
                 assert_eq!(s, "now-90d");
             }
             other => panic!("expected Range(relative, now), got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_emin_emax() {
+        let d = parse_decorator("@emin(0)").unwrap();
+        match d {
+            Decorator::Min {
+                value: RangeValue::Int(0),
+                exclusive: true,
+            } => {}
+            other => panic!("expected Min(0, exclusive), got: {other:?}"),
+        }
+
+        let d = parse_decorator("@emax(100)").unwrap();
+        match d {
+            Decorator::Max {
+                value: RangeValue::Int(100),
+                exclusive: true,
+            } => {}
+            other => panic!("expected Max(100, exclusive), got: {other:?}"),
         }
     }
 

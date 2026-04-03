@@ -43,11 +43,7 @@ mod tests {
         let sem = TypeExpr::Semantic(SemanticType::new("person", "full"));
         assert!(matches!(sem, TypeExpr::Semantic(_)));
 
-        let enum_inline = TypeExpr::Enum(EnumRef::Inline(vec![
-            "a".into(),
-            "b".into(),
-            "c".into(),
-        ]));
+        let enum_inline = TypeExpr::Enum(EnumRef::Inline(vec!["a".into(), "b".into(), "c".into()]));
         assert!(matches!(enum_inline, TypeExpr::Enum(EnumRef::Inline(_))));
 
         let enum_named = TypeExpr::Enum(EnumRef::Named("Status".into()));

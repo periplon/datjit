@@ -31,10 +31,7 @@ impl OutputWriter for YamlWriter {
                     let mut map = serde_yaml::Mapping::new();
                     for col in &entity_data.columns {
                         if let Some(v) = row.get(col) {
-                            map.insert(
-                                serde_yaml::Value::String(col.clone()),
-                                value_to_yaml(v),
-                            );
+                            map.insert(serde_yaml::Value::String(col.clone()), value_to_yaml(v));
                         }
                     }
                     serde_yaml::Value::Mapping(map)
@@ -62,9 +59,10 @@ impl OutputWriter for YamlWriter {
         data: &GeneratedDataSet,
         dest: &mut dyn Write,
     ) -> Result<(), DatjitError> {
-        let entity_data = data.entities.get(entity_name).ok_or_else(|| {
-            DatjitError::Output(format!("entity not found: {entity_name}"))
-        })?;
+        let entity_data = data
+            .entities
+            .get(entity_name)
+            .ok_or_else(|| DatjitError::Output(format!("entity not found: {entity_name}")))?;
 
         let rows: Vec<serde_yaml::Value> = entity_data
             .rows
@@ -73,10 +71,7 @@ impl OutputWriter for YamlWriter {
                 let mut map = serde_yaml::Mapping::new();
                 for col in &entity_data.columns {
                     if let Some(v) = row.get(col) {
-                        map.insert(
-                            serde_yaml::Value::String(col.clone()),
-                            value_to_yaml(v),
-                        );
+                        map.insert(serde_yaml::Value::String(col.clone()), value_to_yaml(v));
                     }
                 }
                 serde_yaml::Value::Mapping(map)

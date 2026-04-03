@@ -4,6 +4,10 @@ use indexmap::IndexMap;
 use serde_yaml::Value as YamlValue;
 
 use datjit_core::error::DatjitError;
+use datjit_core::model::decorator::{ComputeBranch, Expression, FieldPath, LiteralValue};
+use datjit_core::model::mcp_tool::{McpToolDef, McpToolKind};
+use datjit_core::model::rule::ViolationAction;
+use datjit_core::model::trigger::Trigger;
 use datjit_core::model::*;
 use datjit_core::ports::DdlParser;
 use datjit_core::types::TypeExpr;
@@ -70,6 +74,11 @@ impl DdlParser for YamlParser {
             doc.tools = parse_tools(tools)?;
         }
 
+        // Parse mcp_tools
+        if let Some(mcp) = mapping.get(&yaml_key("mcp_tools")) {
+            doc.mcp_tools = parse_mcp_tools(mcp)?;
+        }
+
         Ok(doc)
     }
 }
@@ -100,31 +109,32 @@ fn parse_volume(value: &YamlValue) -> Result<HashMap<String, VolumeSpec>, Datjit
             .as_str()
             .ok_or_else(|| DatjitError::parse("volume", "expected string key"))?;
 
-        let spec = if v.is_null() || v.as_str() == Some("~") {
-            VolumeSpec::Inferred
-        } else if let Some(n) = v.as_u64() {
-            VolumeSpec::Exact(n as usize)
-        } else if let Some(s) = v.as_str() {
-            if let Some((lo, hi)) = s.split_once("..") {
-                let lo: usize = lo.trim().parse().map_err(|_| {
-                    DatjitError::parse("volume", format!("invalid range lo: {lo}"))
-                })?;
-                let hi: usize = hi.trim().parse().map_err(|_| {
-                    DatjitError::parse("volume", format!("invalid range hi: {hi}"))
-                })?;
-                VolumeSpec::Range(lo, hi)
+        let spec =
+            if v.is_null() || v.as_str() == Some("~") {
+                VolumeSpec::Inferred
+            } else if let Some(n) = v.as_u64() {
+                VolumeSpec::Exact(n as usize)
+            } else if let Some(s) = v.as_str() {
+                if let Some((lo, hi)) = s.split_once("..") {
+                    let lo: usize = lo.trim().parse().map_err(|_| {
+                        DatjitError::parse("volume", format!("invalid range lo: {lo}"))
+                    })?;
+                    let hi: usize = hi.trim().parse().map_err(|_| {
+                        DatjitError::parse("volume", format!("invalid range hi: {hi}"))
+                    })?;
+                    VolumeSpec::Range(lo, hi)
+                } else {
+                    let n: usize = s.parse().map_err(|_| {
+                        DatjitError::parse("volume", format!("invalid volume: {s}"))
+                    })?;
+                    VolumeSpec::Exact(n)
+                }
             } else {
-                let n: usize = s.parse().map_err(|_| {
-                    DatjitError::parse("volume", format!("invalid volume: {s}"))
-                })?;
-                VolumeSpec::Exact(n)
-            }
-        } else {
-            return Err(DatjitError::parse(
-                "volume",
-                format!("invalid volume spec for {name}"),
-            ));
-        };
+                return Err(DatjitError::parse(
+                    "volume",
+                    format!("invalid volume spec for {name}"),
+                ));
+            };
 
         result.insert(name.to_string(), spec);
     }
@@ -230,9 +240,7 @@ fn parse_enum_variants(seq: &[YamlValue]) -> Result<Vec<EnumVariant>, DatjitErro
             let value = get_string(mapping, "value")
                 .ok_or_else(|| DatjitError::parse("enum", "weighted variant missing 'value'"))?;
             let label = get_string(mapping, "label");
-            let weight = mapping
-                .get(&yaml_key("weight"))
-                .and_then(|v| v.as_f64());
+            let weight = mapping.get(&yaml_key("weight")).and_then(|v| v.as_f64());
             let description = get_string(mapping, "description");
             variants.push(EnumVariant {
                 value,
@@ -258,9 +266,9 @@ fn parse_types(value: &YamlValue) -> Result<HashMap<String, TypeDef>, DatjitErro
             .as_str()
             .ok_or_else(|| DatjitError::parse("types", "expected string key"))?;
 
-        let fields_mapping = v
-            .as_mapping()
-            .ok_or_else(|| DatjitError::parse("types", format!("expected mapping for type {name}")))?;
+        let fields_mapping = v.as_mapping().ok_or_else(|| {
+            DatjitError::parse("types", format!("expected mapping for type {name}"))
+        })?;
 
         let fields = parse_fields(fields_mapping)?;
 
@@ -318,8 +326,13 @@ fn parse_entities(value: &YamlValue) -> Result<IndexMap<String, Entity>, DatjitE
             }
         }
 
-        // Parse fields (skip _meta and _coherence)
-        let fields = parse_fields_excluding(entity_mapping, &["_meta", "_coherence"])?;
+        // Parse _triggers
+        if let Some(trig_val) = entity_mapping.get(&yaml_key("_triggers")) {
+            entity.triggers = parse_triggers(trig_val)?;
+        }
+
+        // Parse fields (skip _meta, _coherence, _triggers)
+        let fields = parse_fields_excluding(entity_mapping, &["_meta", "_coherence", "_triggers"])?;
         entity.fields = fields;
 
         result.insert(name.to_string(), entity);
@@ -391,8 +404,18 @@ fn parse_fields_excluding(
             type_expr
         };
 
-        let decorators = parse_decorators(&decorator_strs)
+        let mut decorators = parse_decorators(&decorator_strs)
             .map_err(|e| DatjitError::parse(format!("field.{name}"), e.to_string()))?;
+
+        // Parse default_chain and compute from mapping format
+        if let Some(mapping) = v.as_mapping() {
+            if let Some(chain) = parse_default_chain_from_mapping(mapping)? {
+                decorators.push(chain);
+            }
+            if let Some(compute) = parse_compute_from_mapping(mapping)? {
+                decorators.push(compute);
+            }
+        }
 
         fields.insert(
             name.to_string(),
@@ -417,10 +440,19 @@ fn parse_rules(value: &YamlValue) -> Result<Vec<Rule>, DatjitError> {
     let mut rules = Vec::new();
     for item in seq {
         if let Some(s) = item.as_str() {
-            // For now, store rules as simple comparison expressions
-            // Full rule parsing will be enhanced in Phase 5
             let rule = parse_rule_string(s)?;
             rules.push(rule);
+        } else if let Some(mapping) = item.as_mapping() {
+            // Mapping format: { when, assert, error, severity } or { cross_row }
+            if mapping.contains_key(&yaml_key("cross_row")) {
+                let rule = parse_cross_row_rule(mapping)?;
+                rules.push(rule);
+            } else if mapping.contains_key(&yaml_key("when"))
+                || mapping.contains_key(&yaml_key("assert"))
+            {
+                let rule = parse_mapping_rule(mapping)?;
+                rules.push(rule);
+            }
         }
     }
     Ok(rules)
@@ -487,6 +519,7 @@ fn parse_rule_string(input: &str) -> Result<Rule, DatjitError> {
     Ok(Rule {
         expression,
         modifier,
+        message: None,
     })
 }
 
@@ -592,9 +625,9 @@ fn parse_tools(value: &YamlValue) -> Result<HashMap<String, ToolOverrides>, Datj
             .as_str()
             .ok_or_else(|| DatjitError::parse("tools", "expected string key"))?;
 
-        let tool_mapping = v.as_mapping().ok_or_else(|| {
-            DatjitError::parse("tools", format!("expected mapping for {name}"))
-        })?;
+        let tool_mapping = v
+            .as_mapping()
+            .ok_or_else(|| DatjitError::parse("tools", format!("expected mapping for {name}")))?;
 
         let overrides = ToolOverrides {
             list: parse_list_override(tool_mapping)?,
@@ -608,9 +641,7 @@ fn parse_tools(value: &YamlValue) -> Result<HashMap<String, ToolOverrides>, Datj
     Ok(result)
 }
 
-fn parse_list_override(
-    mapping: &serde_yaml::Mapping,
-) -> Result<Option<ListOverride>, DatjitError> {
+fn parse_list_override(mapping: &serde_yaml::Mapping) -> Result<Option<ListOverride>, DatjitError> {
     let list_val = match mapping.get(&yaml_key("list")) {
         Some(v) => v,
         None => return Ok(None),
@@ -694,9 +725,7 @@ fn parse_mutation_override(
             .and_then(|v| v.as_mapping())
             .map(|dm| {
                 dm.iter()
-                    .filter_map(|(k, v)| {
-                        Some((k.as_str()?.to_string(), v.as_str()?.to_string()))
-                    })
+                    .filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string())))
                     .collect()
             }),
     }))
@@ -731,6 +760,402 @@ fn parse_delete_override(
         disabled: false,
         strategy,
     }))
+}
+
+// --- New parsers for GL String business rules ---
+
+fn parse_triggers(value: &YamlValue) -> Result<Vec<Trigger>, DatjitError> {
+    let seq = value
+        .as_sequence()
+        .ok_or_else(|| DatjitError::parse("_triggers", "expected sequence"))?;
+
+    let mut triggers = Vec::new();
+    for item in seq {
+        let mapping = item
+            .as_mapping()
+            .ok_or_else(|| DatjitError::parse("_triggers", "expected mapping for trigger"))?;
+
+        let on = if let Some(on_val) = mapping.get(&yaml_key("on")) {
+            if let Some(s) = on_val.as_str() {
+                vec![s.to_string()]
+            } else if let Some(seq) = on_val.as_sequence() {
+                seq.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            } else {
+                return Err(DatjitError::parse(
+                    "_triggers",
+                    "on must be a string or list",
+                ));
+            }
+        } else {
+            return Err(DatjitError::parse("_triggers", "trigger missing 'on'"));
+        };
+
+        let recompute = mapping
+            .get(&yaml_key("recompute"))
+            .and_then(|v| v.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let validate = mapping
+            .get(&yaml_key("validate"))
+            .and_then(|v| v.as_sequence())
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        triggers.push(Trigger {
+            on,
+            recompute,
+            validate,
+        });
+    }
+    Ok(triggers)
+}
+
+fn parse_mcp_tools(value: &YamlValue) -> Result<IndexMap<String, McpToolDef>, DatjitError> {
+    let mapping = value
+        .as_mapping()
+        .ok_or_else(|| DatjitError::parse("mcp_tools", "expected mapping"))?;
+
+    let mut result = IndexMap::new();
+    for (k, v) in mapping {
+        let name = k
+            .as_str()
+            .ok_or_else(|| DatjitError::parse("mcp_tools", "expected string key"))?;
+
+        let tool_mapping = v.as_mapping().ok_or_else(|| {
+            DatjitError::parse("mcp_tools", format!("expected mapping for {name}"))
+        })?;
+
+        let description = get_string(tool_mapping, "description").unwrap_or_default();
+
+        let input = tool_mapping
+            .get(&yaml_key("input"))
+            .and_then(|v| v.as_mapping())
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string())))
+                    .collect::<IndexMap<String, String>>()
+            })
+            .unwrap_or_default();
+
+        let output = tool_mapping
+            .get(&yaml_key("output"))
+            .and_then(|v| v.as_mapping())
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| Some((k.as_str()?.to_string(), v.as_str()?.to_string())))
+                    .collect::<IndexMap<String, String>>()
+            })
+            .unwrap_or_default();
+
+        let kind = match get_string(tool_mapping, "kind").as_deref() {
+            Some("lookup") => McpToolKind::Lookup,
+            Some("validation") => McpToolKind::Validation,
+            Some("dropdown") => McpToolKind::Dropdown,
+            Some("action") => McpToolKind::Action,
+            _ => McpToolKind::Action,
+        };
+
+        result.insert(
+            name.to_string(),
+            McpToolDef {
+                name: name.to_string(),
+                description,
+                input,
+                output,
+                kind,
+            },
+        );
+    }
+    Ok(result)
+}
+
+fn parse_default_chain_from_mapping(
+    mapping: &serde_yaml::Mapping,
+) -> Result<Option<Decorator>, DatjitError> {
+    let chain_val = match mapping.get(&yaml_key("default_chain")) {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let seq = chain_val
+        .as_sequence()
+        .ok_or_else(|| DatjitError::parse("default_chain", "expected sequence"))?;
+
+    let sources: Vec<FieldPath> = seq
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(FieldPath::parse)
+        .collect();
+
+    if sources.is_empty() {
+        return Err(DatjitError::parse(
+            "default_chain",
+            "at least one source required",
+        ));
+    }
+
+    let when = get_string(mapping, "when").map(|s| parse_expression_string(&s));
+    let fallback = get_string(mapping, "fallback").map(|s| parse_expression_string(&s));
+
+    Ok(Some(Decorator::DefaultChain {
+        sources,
+        when,
+        fallback,
+    }))
+}
+
+fn parse_compute_from_mapping(
+    mapping: &serde_yaml::Mapping,
+) -> Result<Option<Decorator>, DatjitError> {
+    let compute_val = match mapping.get(&yaml_key("compute")) {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let seq = compute_val
+        .as_sequence()
+        .ok_or_else(|| DatjitError::parse("compute", "expected sequence"))?;
+
+    let mut branches = Vec::new();
+    for item in seq {
+        let branch_mapping = item
+            .as_mapping()
+            .ok_or_else(|| DatjitError::parse("compute", "expected mapping for branch"))?;
+
+        if let Some(else_val) = get_string(branch_mapping, "else") {
+            branches.push(ComputeBranch {
+                when: None,
+                value: parse_expression_string(&else_val),
+            });
+        } else {
+            let when_str = get_string(branch_mapping, "when").ok_or_else(|| {
+                DatjitError::parse("compute", "branch must have 'when' or 'else'")
+            })?;
+            let value_str = get_string(branch_mapping, "value")
+                .ok_or_else(|| DatjitError::parse("compute", "branch must have 'value'"))?;
+            branches.push(ComputeBranch {
+                when: Some(parse_expression_string(&when_str)),
+                value: parse_expression_string(&value_str),
+            });
+        }
+    }
+
+    if branches.is_empty() {
+        return Err(DatjitError::parse(
+            "compute",
+            "at least one branch required",
+        ));
+    }
+
+    Ok(Some(Decorator::Compute(branches)))
+}
+
+fn parse_mapping_rule(mapping: &serde_yaml::Mapping) -> Result<Rule, DatjitError> {
+    let when_str = get_string(mapping, "when");
+    let assert_str = get_string(mapping, "assert")
+        .ok_or_else(|| DatjitError::parse("rule", "mapping rule requires 'assert'"))?;
+    let error = get_string(mapping, "error");
+
+    let severity = match get_string(mapping, "severity").as_deref() {
+        Some("strict") | None => RuleModifier::Strict,
+        Some("warn") => RuleModifier::Warn,
+        Some(other) if other.starts_with("probability(") => {
+            let p_str = other
+                .trim_start_matches("probability(")
+                .trim_end_matches(')');
+            let p: f64 = p_str
+                .parse()
+                .map_err(|_| DatjitError::parse("rule", format!("invalid probability: {p_str}")))?;
+            RuleModifier::Probability(p)
+        }
+        Some(other) => {
+            return Err(DatjitError::parse(
+                "rule",
+                format!("unknown severity: {other}"),
+            ))
+        }
+    };
+
+    let assert_expr = parse_comparison(&assert_str)?;
+
+    let expression = if let Some(when_str) = when_str {
+        let condition = parse_comparison(&when_str)?;
+        RuleExpression::Conditional {
+            condition: Box::new(condition),
+            then: Box::new(assert_expr),
+        }
+    } else {
+        assert_expr
+    };
+
+    Ok(Rule {
+        expression,
+        modifier: severity,
+        message: error,
+    })
+}
+
+fn parse_cross_row_rule(mapping: &serde_yaml::Mapping) -> Result<Rule, DatjitError> {
+    let cross_row_val = mapping
+        .get(&yaml_key("cross_row"))
+        .ok_or_else(|| DatjitError::parse("rule", "missing cross_row key"))?;
+
+    let cr_mapping = cross_row_val
+        .as_mapping()
+        .ok_or_else(|| DatjitError::parse("cross_row", "expected mapping"))?;
+
+    let entity = get_string(cr_mapping, "entity")
+        .ok_or_else(|| DatjitError::parse("cross_row", "missing 'entity'"))?;
+
+    let group_by = get_string(cr_mapping, "group_by");
+
+    let check_str = get_string(cr_mapping, "check")
+        .ok_or_else(|| DatjitError::parse("cross_row", "missing 'check'"))?;
+    let check = parse_expression_string(&check_str);
+
+    let probability = cr_mapping
+        .get(&yaml_key("probability"))
+        .and_then(|v| v.as_f64());
+
+    let on_violation = if let Some(ov_val) = cr_mapping.get(&yaml_key("on_violation")) {
+        let ov_mapping = ov_val
+            .as_mapping()
+            .ok_or_else(|| DatjitError::parse("cross_row", "on_violation must be a mapping"))?;
+
+        let error = get_string(ov_mapping, "error");
+
+        let set_fields = if let Some(set_val) = ov_mapping.get(&yaml_key("set")) {
+            if let Some(set_mapping) = set_val.as_mapping() {
+                set_mapping
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        let field_path = FieldPath::parse(k.as_str()?);
+                        let expr = parse_expression_string(v.as_str().unwrap_or("null"));
+                        Some((field_path, expr))
+                    })
+                    .collect()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        Some(ViolationAction { set_fields, error })
+    } else {
+        None
+    };
+
+    Ok(Rule {
+        expression: RuleExpression::CrossRow {
+            entity,
+            group_by,
+            check,
+            on_violation,
+            probability,
+        },
+        modifier: RuleModifier::Strict,
+        message: None,
+    })
+}
+
+/// Parse a simple expression string into an Expression AST.
+/// This handles: string literals ('...'), field refs, function calls, and basic operators.
+fn parse_expression_string(input: &str) -> Expression {
+    let input = input.trim();
+
+    // String literal: 'value'
+    if input.starts_with('\'') && input.ends_with('\'') && input.len() >= 2 {
+        return Expression::Literal(LiteralValue::String(input[1..input.len() - 1].to_string()));
+    }
+
+    // Integer literal
+    if let Ok(n) = input.parse::<i64>() {
+        return Expression::Literal(LiteralValue::Int(n));
+    }
+
+    // Float literal
+    if let Ok(f) = input.parse::<f64>() {
+        return Expression::Literal(LiteralValue::Float(f));
+    }
+
+    // Boolean literals
+    if input == "true" {
+        return Expression::Literal(LiteralValue::Bool(true));
+    }
+    if input == "false" {
+        return Expression::Literal(LiteralValue::Bool(false));
+    }
+
+    // Null
+    if input == "null" {
+        return Expression::Literal(LiteralValue::Null);
+    }
+
+    // Function call: name(args...)
+    if let Some(paren_idx) = input.find('(') {
+        if input.ends_with(')') {
+            let name = input[..paren_idx].trim().to_string();
+            let args_str = &input[paren_idx + 1..input.len() - 1];
+            let args = split_expression_args(args_str)
+                .iter()
+                .map(|a| parse_expression_string(a))
+                .collect();
+            return Expression::FunctionCall { name, args };
+        }
+    }
+
+    // Default: treat as field reference
+    Expression::FieldRef(FieldPath::parse(input))
+}
+
+/// Split comma-separated expression arguments, respecting parentheses and quotes.
+fn split_expression_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0;
+    let mut in_quote = false;
+
+    for ch in input.chars() {
+        match ch {
+            '\'' => {
+                in_quote = !in_quote;
+                current.push(ch);
+            }
+            '(' if !in_quote => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_quote => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if depth == 0 && !in_quote => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    args.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        args.push(trimmed);
+    }
+    args
 }
 
 #[cfg(test)]
@@ -898,7 +1323,9 @@ entities:
         assert_eq!(doc.types["Address"].fields.len(), 3);
 
         let billing = &doc.entities["Customer"].fields["billing_address"];
-        assert!(matches!(billing.type_expr, datjit_core::types::TypeExpr::Named(ref s) if s == "Address"));
+        assert!(
+            matches!(billing.type_expr, datjit_core::types::TypeExpr::Named(ref s) if s == "Address")
+        );
     }
 
     #[test]
@@ -956,5 +1383,213 @@ entities:
         assert_eq!(emp.coherence_groups.len(), 2);
         assert_eq!(emp.coherence_groups["identity"].len(), 3);
         assert_eq!(emp.coherence_groups["location"].len(), 2);
+    }
+
+    #[test]
+    fn test_parse_triggers() {
+        let yaml = r#"
+domain: test
+entities:
+  PRLine:
+    _triggers:
+      - on: wo
+        recompute: [pcbu, project_id, glacct]
+      - on: [itemnum, linetype]
+        recompute: [cc]
+      - on: project_id
+        validate: [glacct_rule]
+    id: uuid @primary
+    wo: string
+    pcbu: string
+    project_id: string
+    glacct: string
+    cc: string
+    itemnum: string
+    linetype: string
+"#;
+        let parser = YamlParser;
+        let doc = parser.parse(yaml).unwrap();
+        let pr = &doc.entities["PRLine"];
+        assert_eq!(pr.triggers.len(), 3);
+        assert_eq!(pr.triggers[0].on, vec!["wo"]);
+        assert_eq!(
+            pr.triggers[0].recompute,
+            vec!["pcbu", "project_id", "glacct"]
+        );
+        assert_eq!(pr.triggers[1].on, vec!["itemnum", "linetype"]);
+        assert_eq!(pr.triggers[2].validate, vec!["glacct_rule"]);
+    }
+
+    #[test]
+    fn test_parse_mcp_tools() {
+        let yaml = r#"
+domain: test
+entities:
+  Item:
+    id: uuid @primary
+mcp_tools:
+  load_default_pcbu:
+    description: "Load default PCBU from WO"
+    input:
+      wo_id: string
+      plant: string
+    output:
+      pcbu: string
+    kind: lookup
+  validate_gl:
+    description: "Validate GL string"
+    input:
+      gl_string: string
+    output:
+      valid: bool
+    kind: validation
+"#;
+        let parser = YamlParser;
+        let doc = parser.parse(yaml).unwrap();
+        assert_eq!(doc.mcp_tools.len(), 2);
+
+        let pcbu_tool = &doc.mcp_tools["load_default_pcbu"];
+        assert_eq!(
+            pcbu_tool.kind,
+            datjit_core::model::mcp_tool::McpToolKind::Lookup
+        );
+        assert_eq!(pcbu_tool.input.len(), 2);
+        assert_eq!(pcbu_tool.output.len(), 1);
+
+        let gl_tool = &doc.mcp_tools["validate_gl"];
+        assert_eq!(
+            gl_tool.kind,
+            datjit_core::model::mcp_tool::McpToolKind::Validation
+        );
+    }
+
+    #[test]
+    fn test_parse_default_chain() {
+        let yaml = r#"
+domain: test
+entities:
+  PRLine:
+    id: uuid @primary
+    glacct:
+      type: string
+      default_chain:
+        - wo.gl_acct
+        - location.gl_acct
+        - asset.gl_acct
+"#;
+        let parser = YamlParser;
+        let doc = parser.parse(yaml).unwrap();
+        let field = &doc.entities["PRLine"].fields["glacct"];
+        let chain = field
+            .decorators
+            .iter()
+            .find(|d| matches!(d, Decorator::DefaultChain { .. }));
+        assert!(chain.is_some());
+        if let Some(Decorator::DefaultChain { sources, .. }) = chain {
+            assert_eq!(sources.len(), 3);
+            assert_eq!(sources[0].segments, vec!["wo", "gl_acct"]);
+        }
+    }
+
+    #[test]
+    fn test_parse_compute() {
+        let yaml = r#"
+domain: test
+entities:
+  PRLine:
+    id: uuid @primary
+    cc:
+      type: string
+      compute:
+        - when: "starts_with(wo_id, 'L')"
+          value: "'999'"
+        - when: "linetype == 'STDSERVICE'"
+          value: "'392'"
+        - else: "'000'"
+"#;
+        let parser = YamlParser;
+        let doc = parser.parse(yaml).unwrap();
+        let field = &doc.entities["PRLine"].fields["cc"];
+        let compute = field
+            .decorators
+            .iter()
+            .find(|d| matches!(d, Decorator::Compute(_)));
+        assert!(compute.is_some());
+        if let Some(Decorator::Compute(branches)) = compute {
+            assert_eq!(branches.len(), 3);
+            assert!(branches[0].when.is_some()); // conditional
+            assert!(branches[1].when.is_some()); // conditional
+            assert!(branches[2].when.is_none()); // else branch
+        }
+    }
+
+    #[test]
+    fn test_parse_mapping_rule_with_error() {
+        let yaml = r#"
+domain: test
+entities:
+  PRLine:
+    id: uuid @primary
+    glacct: string
+    linetype: string
+    project_id: string
+rules:
+  - when: "PRLine.linetype == \"MATERIAL\""
+    assert: "PRLine.glacct != null"
+    error: "GLACCT is required for Material lines"
+    severity: strict
+"#;
+        let parser = YamlParser;
+        let doc = parser.parse(yaml).unwrap();
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(
+            doc.rules[0].message,
+            Some("GLACCT is required for Material lines".into())
+        );
+        assert!(matches!(
+            doc.rules[0].expression,
+            RuleExpression::Conditional { .. }
+        ));
+    }
+
+    #[test]
+    fn test_parse_cross_row_rule() {
+        let yaml = r#"
+domain: test
+entities:
+  PRLine:
+    id: uuid @primary
+    pr_id: string
+    x1aeplegal: string
+rules:
+  - cross_row:
+      entity: PRLine
+      group_by: pr_id
+      check: "all_equal(x1aeplegal)"
+      probability: 0.2
+      on_violation:
+        error: "Legal entity mismatch"
+"#;
+        let parser = YamlParser;
+        let doc = parser.parse(yaml).unwrap();
+        assert_eq!(doc.rules.len(), 1);
+        if let RuleExpression::CrossRow {
+            entity,
+            group_by,
+            probability,
+            on_violation,
+            ..
+        } = &doc.rules[0].expression
+        {
+            assert_eq!(entity, "PRLine");
+            assert_eq!(group_by.as_deref(), Some("pr_id"));
+            assert_eq!(*probability, Some(0.2));
+            assert_eq!(
+                on_violation.as_ref().unwrap().error.as_deref(),
+                Some("Legal entity mismatch")
+            );
+        } else {
+            panic!("Expected CrossRow rule");
+        }
     }
 }

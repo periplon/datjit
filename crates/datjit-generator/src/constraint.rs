@@ -18,9 +18,8 @@ pub fn rule_applies_to_entity(rule: &Rule, entity_name: &str) -> bool {
         RuleExpression::UniqueComposite(paths) => {
             paths.iter().any(|p| field_path_starts_with(p, entity_name))
         }
-        RuleExpression::CountConstraint { path, .. } => {
-            field_path_starts_with(path, entity_name)
-        }
+        RuleExpression::CountConstraint { path, .. } => field_path_starts_with(path, entity_name),
+        RuleExpression::CrossRow { entity, .. } => entity == entity_name,
     }
 }
 
@@ -34,9 +33,8 @@ fn expr_applies_to_entity(expr: &RuleExpression, entity_name: &str) -> bool {
         RuleExpression::UniqueComposite(paths) => {
             paths.iter().any(|p| field_path_starts_with(p, entity_name))
         }
-        RuleExpression::CountConstraint { path, .. } => {
-            field_path_starts_with(path, entity_name)
-        }
+        RuleExpression::CountConstraint { path, .. } => field_path_starts_with(path, entity_name),
+        RuleExpression::CrossRow { entity, .. } => entity == entity_name,
     }
 }
 
@@ -78,11 +76,12 @@ fn evaluate_expression(
                 true
             }
         }
-        // Aggregate and UniqueComposite/CountConstraint are complex cross-entity checks;
-        // for now, pass them (they'd need full dataset analysis).
+        // Aggregate, UniqueComposite, CountConstraint, and CrossRow are complex checks;
+        // for now, pass them in per-row evaluation. CrossRow runs as a post-pass.
         RuleExpression::Aggregate { .. }
         | RuleExpression::UniqueComposite(_)
-        | RuleExpression::CountConstraint { .. } => true,
+        | RuleExpression::CountConstraint { .. }
+        | RuleExpression::CrossRow { .. } => true,
     }
 }
 
@@ -130,12 +129,7 @@ fn resolve_field_path(
                                 .chain(field_segments[1..].iter().cloned())
                                 .collect(),
                         );
-                        return resolve_field_path(
-                            &remaining,
-                            target_entity,
-                            target_row,
-                            all_data,
-                        );
+                        return resolve_field_path(&remaining, target_entity, target_row, all_data);
                     }
                 }
             }
@@ -184,12 +178,8 @@ fn compare_values(left: &Value, op: &CompOp, right: &Value) -> bool {
         CompOp::Neq => left != right,
         CompOp::Gt => numeric_cmp(left, right).map_or(false, |o| o == std::cmp::Ordering::Greater),
         CompOp::Lt => numeric_cmp(left, right).map_or(false, |o| o == std::cmp::Ordering::Less),
-        CompOp::Gte => {
-            numeric_cmp(left, right).map_or(false, |o| o != std::cmp::Ordering::Less)
-        }
-        CompOp::Lte => {
-            numeric_cmp(left, right).map_or(false, |o| o != std::cmp::Ordering::Greater)
-        }
+        CompOp::Gte => numeric_cmp(left, right).map_or(false, |o| o != std::cmp::Ordering::Less),
+        CompOp::Lte => numeric_cmp(left, right).map_or(false, |o| o != std::cmp::Ordering::Greater),
         CompOp::In => {
             // "In" checks if left value is contained in right (if right is a list-like concept)
             left == right
@@ -228,25 +218,36 @@ pub fn enforce_rules(
         match &rule.modifier {
             RuleModifier::Strict => {
                 if !evaluate_rule(rule, entity_name, row, all_data) {
-                    return Err(DatjitError::ConstraintViolation(format!(
-                        "Strict rule violated for entity '{entity_name}': {rule:?}"
-                    )));
+                    let msg = rule
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| format!("Strict rule violated: {rule:?}"));
+                    return Err(DatjitError::ConstraintViolationAnnotated {
+                        entity: entity_name.to_string(),
+                        message: msg,
+                        fields: vec![],
+                    });
                 }
             }
             RuleModifier::Probability(p) => {
-                if rng.gen_bool(p.clamp(0.0, 1.0)) {
-                    if !evaluate_rule(rule, entity_name, row, all_data) {
-                        return Err(DatjitError::ConstraintViolation(format!(
-                            "Probability rule violated for entity '{entity_name}': {rule:?}"
-                        )));
-                    }
+                if rng.gen_bool(p.clamp(0.0, 1.0))
+                    && !evaluate_rule(rule, entity_name, row, all_data)
+                {
+                    let msg = rule
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| format!("Probability rule violated: {rule:?}"));
+                    return Err(DatjitError::ConstraintViolationAnnotated {
+                        entity: entity_name.to_string(),
+                        message: msg,
+                        fields: vec![],
+                    });
                 }
             }
             RuleModifier::Warn => {
                 if !evaluate_rule(rule, entity_name, row, all_data) {
-                    eprintln!(
-                        "Warning: rule violated for entity '{entity_name}': {rule:?}"
-                    );
+                    let msg = rule.message.as_deref().unwrap_or("rule violated");
+                    eprintln!("Warning for entity '{entity_name}': {msg}");
                 }
             }
         }
@@ -254,11 +255,87 @@ pub fn enforce_rules(
     Ok(())
 }
 
+/// Enforce cross-row rules after all rows for an entity are generated.
+/// With configurable probability, intentionally generates violations for test data.
+pub fn enforce_cross_row_rules(
+    rules: &[Rule],
+    entity_name: &str,
+    rows: &mut [Row],
+    all_data: &mut IndexMap<String, Vec<Row>>,
+    rng: &mut impl Rng,
+) {
+    use crate::derived_gen::evaluate_derived;
+    use std::collections::HashMap;
+
+    for rule in rules {
+        if let RuleExpression::CrossRow {
+            entity,
+            group_by,
+            check: _check,
+            on_violation,
+            probability,
+        } = &rule.expression
+        {
+            if entity != entity_name {
+                continue;
+            }
+
+            let violation_rate = probability.unwrap_or(0.0);
+
+            // Group rows by the group_by field
+            let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+            for (idx, row) in rows.iter().enumerate() {
+                let group_key = if let Some(gb_field) = group_by {
+                    row.get(gb_field)
+                        .map(|v| v.to_output_string())
+                        .unwrap_or_else(|| idx.to_string())
+                } else {
+                    "all".to_string()
+                };
+                groups.entry(group_key).or_default().push(idx);
+            }
+
+            // For each group, check if we should introduce a violation
+            for (_group_key, indices) in &groups {
+                if indices.len() < 2 {
+                    continue;
+                }
+
+                let should_violate =
+                    violation_rate > 0.0 && rng.gen_bool(violation_rate.clamp(0.0, 1.0));
+
+                if should_violate {
+                    // Intentionally introduce a mismatch for test data
+                    // Pick one row in the group and alter a field to create mismatch
+                    if let Some(on_v) = on_violation {
+                        // Apply set_fields side effects
+                        for (field_path, expr) in &on_v.set_fields {
+                            if field_path.segments.len() >= 2 {
+                                let target_entity = &field_path.segments[0];
+                                let target_field = &field_path.segments[1];
+                                let empty_row = IndexMap::new();
+                                let val = evaluate_derived(expr, &empty_row, all_data)
+                                    .unwrap_or(Value::Int(1));
+                                if let Some(target_rows) = all_data.get_mut(target_entity.as_str())
+                                {
+                                    if let Some(last) = target_rows.last_mut() {
+                                        last.insert(target_field.clone(), val);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datjit_core::model::rule::{CompOp, Rule, RuleExpression, RuleModifier, RuleOperand};
     use datjit_core::model::decorator::FieldPath;
+    use datjit_core::model::rule::{CompOp, Rule, RuleExpression, RuleModifier, RuleOperand};
 
     fn make_row(pairs: Vec<(&str, Value)>) -> Row {
         pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
@@ -273,6 +350,7 @@ mod tests {
                 right: RuleOperand::String("done".into()),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
 
         let row = make_row(vec![("status", Value::String("done".into()))]);
@@ -290,6 +368,7 @@ mod tests {
                 right: RuleOperand::String("done".into()),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
 
         let row = make_row(vec![("status", Value::String("pending".into()))]);
@@ -307,6 +386,7 @@ mod tests {
                 right: RuleOperand::Int(0),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
 
         let row = make_row(vec![("total", Value::Int(42))]);
@@ -332,6 +412,7 @@ mod tests {
                 }),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
 
         // Condition met, consequent satisfied
@@ -366,6 +447,7 @@ mod tests {
                 right: RuleOperand::Int(0),
             },
             modifier: RuleModifier::Probability(0.0), // 0% chance of enforcement
+            message: None,
         };
 
         // Rule is violated but probability is 0, so it should pass
@@ -386,6 +468,7 @@ mod tests {
                 right: RuleOperand::String("done".into()),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
 
         assert!(rule_applies_to_entity(&rule, "Task"));
@@ -401,6 +484,7 @@ mod tests {
                 right: RuleOperand::String("done".into()),
             },
             modifier: RuleModifier::Strict,
+            message: None,
         };
 
         let row = make_row(vec![("status", Value::String("pending".into()))]);
@@ -420,6 +504,7 @@ mod tests {
                 right: RuleOperand::String("done".into()),
             },
             modifier: RuleModifier::Warn,
+            message: None,
         };
 
         let row = make_row(vec![("status", Value::String("pending".into()))]);

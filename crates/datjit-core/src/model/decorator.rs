@@ -11,12 +11,25 @@ pub enum Decorator {
     Immutable,
 
     // Value Constraints
-    Range(RangeValue, RangeValue),
-    Min(RangeValue),
-    Max(RangeValue),
+    Range {
+        lo: RangeValue,
+        hi: RangeValue,
+        lo_exclusive: bool,
+        hi_exclusive: bool,
+    },
+    Min {
+        value: RangeValue,
+        exclusive: bool,
+    },
+    Max {
+        value: RangeValue,
+        exclusive: bool,
+    },
     Len(usize, usize),
     Pattern(PatternKind),
     Values(Vec<String>),
+    MultipleOf(f64),
+    UniqueItems,
     NotEmpty,
     Optional,
     Default(LiteralValue),
@@ -62,6 +75,33 @@ pub enum Decorator {
     // Scoping
     Domain(String),
     Locale(String),
+
+    // Conditional presence
+    DependentRequired(Vec<String>),
+
+    // Metadata (non-generative)
+    Deprecated,
+    WriteOnly,
+    Examples(Vec<String>),
+
+    // Cascading defaults: first non-null from ordered sources
+    DefaultChain {
+        sources: Vec<FieldPath>,
+        when: Option<Expression>,
+        fallback: Option<Expression>,
+    },
+
+    // Multi-branch conditional computation
+    Compute(Vec<ComputeBranch>),
+}
+
+/// A single branch in a `compute:` block.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComputeBranch {
+    /// Condition expression; `None` means this is the `else` branch.
+    pub when: Option<Expression>,
+    /// Value expression to evaluate when condition is met.
+    pub value: Expression,
 }
 
 /// A range boundary value — can be numeric, date, or relative.

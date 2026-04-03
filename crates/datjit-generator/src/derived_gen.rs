@@ -26,9 +26,7 @@ pub fn evaluate_derived(
             evaluate_unary_op(op, &val)
         }
 
-        Expression::FunctionCall { name, args } => {
-            evaluate_function(name, args, row, all_data)
-        }
+        Expression::FunctionCall { name, args } => evaluate_function(name, args, row, all_data),
 
         Expression::InList { value, list } => {
             let val = evaluate_derived(value, row, all_data)?;
@@ -209,10 +207,7 @@ fn evaluate_unary_op(op: &UnaryOp, val: &Value) -> Result<Value, DatjitError> {
         UnaryOp::Neg => match val {
             Value::Int(n) => Ok(Value::Int(-n)),
             Value::Float(f) => Ok(Value::Float(-f)),
-            _ => Err(DatjitError::Generation(format!(
-                "cannot negate {:?}",
-                val
-            ))),
+            _ => Err(DatjitError::Generation(format!("cannot negate {:?}", val))),
         },
     }
 }
@@ -385,6 +380,52 @@ fn evaluate_function(
             Ok(Value::String(slug))
         }
 
+        "starts_with" => {
+            if args.len() < 2 {
+                return Err(DatjitError::Generation(
+                    "starts_with() requires 2 arguments".into(),
+                ));
+            }
+            let val = evaluate_derived(&args[0], row, all_data)?;
+            let prefix = evaluate_derived(&args[1], row, all_data)?;
+            let s = val.to_output_string();
+            let p = prefix.to_output_string();
+            Ok(Value::Bool(s.starts_with(&p)))
+        }
+
+        "ends_with" => {
+            if args.len() < 2 {
+                return Err(DatjitError::Generation(
+                    "ends_with() requires 2 arguments".into(),
+                ));
+            }
+            let val = evaluate_derived(&args[0], row, all_data)?;
+            let suffix = evaluate_derived(&args[1], row, all_data)?;
+            let s = val.to_output_string();
+            let sfx = suffix.to_output_string();
+            Ok(Value::Bool(s.ends_with(&sfx)))
+        }
+
+        "all_equal" => {
+            // Used in cross-row checks: all_equal(field) checks if a list of values are all equal.
+            // When called with a single field ref, returns true (single value is trivially equal).
+            if args.is_empty() {
+                return Ok(Value::Bool(true));
+            }
+            let val = evaluate_derived(&args[0], row, all_data)?;
+            match val {
+                Value::List(items) => {
+                    if items.is_empty() {
+                        Ok(Value::Bool(true))
+                    } else {
+                        let first = &items[0];
+                        Ok(Value::Bool(items.iter().all(|v| v == first)))
+                    }
+                }
+                _ => Ok(Value::Bool(true)),
+            }
+        }
+
         _ => Err(DatjitError::Generation(format!(
             "unknown function: {}",
             name
@@ -447,15 +488,13 @@ fn compute_years_since(date_str: &str) -> i64 {
 fn compute_days_between(a: &str, b: &str) -> i64 {
     use chrono::NaiveDate;
     let parse = |s: &str| -> Option<NaiveDate> {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d")
-            .ok()
-            .or_else(|| {
-                if s.len() >= 10 {
-                    NaiveDate::parse_from_str(&s[..10], "%Y-%m-%d").ok()
-                } else {
-                    None
-                }
-            })
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").ok().or_else(|| {
+            if s.len() >= 10 {
+                NaiveDate::parse_from_str(&s[..10], "%Y-%m-%d").ok()
+            } else {
+                None
+            }
+        })
     };
     match (parse(a), parse(b)) {
         (Some(da), Some(db)) => (db - da).num_days().abs(),
@@ -466,13 +505,7 @@ fn compute_days_between(a: &str, b: &str) -> i64 {
 fn slugify(s: &str) -> String {
     s.to_lowercase()
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect::<String>()
         .split('-')
         .filter(|part| !part.is_empty())
@@ -704,6 +737,62 @@ mod tests {
         };
         let result = evaluate_derived(&expr, &row, &empty_all_data()).unwrap();
         assert_eq!(result, Value::Int(10));
+    }
+
+    #[test]
+    fn test_starts_with() {
+        let mut row = IndexMap::new();
+        row.insert("glacct".into(), Value::String("154-3200".into()));
+
+        let expr = Expression::FunctionCall {
+            name: "starts_with".into(),
+            args: vec![
+                Expression::FieldRef(FieldPath::parse("glacct")),
+                Expression::Literal(LiteralValue::String("154".into())),
+            ],
+        };
+        let result = evaluate_derived(&expr, &row, &empty_all_data()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+
+        let expr2 = Expression::FunctionCall {
+            name: "starts_with".into(),
+            args: vec![
+                Expression::FieldRef(FieldPath::parse("glacct")),
+                Expression::Literal(LiteralValue::String("200".into())),
+            ],
+        };
+        let result2 = evaluate_derived(&expr2, &row, &empty_all_data()).unwrap();
+        assert_eq!(result2, Value::Bool(false));
+    }
+
+    #[test]
+    fn test_ends_with() {
+        let mut row = IndexMap::new();
+        row.insert("code".into(), Value::String("WO-L12345".into()));
+
+        let expr = Expression::FunctionCall {
+            name: "ends_with".into(),
+            args: vec![
+                Expression::FieldRef(FieldPath::parse("code")),
+                Expression::Literal(LiteralValue::String("12345".into())),
+            ],
+        };
+        let result = evaluate_derived(&expr, &row, &empty_all_data()).unwrap();
+        assert_eq!(result, Value::Bool(true));
+    }
+
+    #[test]
+    fn test_all_equal() {
+        let row = IndexMap::new();
+        let all_data = empty_all_data();
+
+        // Equal list
+        let expr = Expression::FunctionCall {
+            name: "all_equal".into(),
+            args: vec![Expression::Literal(LiteralValue::Null)],
+        };
+        let result = evaluate_derived(&expr, &row, &all_data).unwrap();
+        assert_eq!(result, Value::Bool(true));
     }
 
     #[test]

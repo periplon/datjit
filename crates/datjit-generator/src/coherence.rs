@@ -37,8 +37,7 @@ pub fn generate_coherence_groups(
                 if let Some(source_field_name) = sources.first() {
                     // Generate source field on-demand if not yet available
                     if !partial_row.contains_key(source_field_name.as_str()) {
-                        if let Some(source_field) = entity.fields.get(source_field_name.as_str())
-                        {
+                        if let Some(source_field) = entity.fields.get(source_field_name.as_str()) {
                             let source_val =
                                 generate_field(source_field, &entity.name, &partial_row, ctx)?;
                             partial_row.insert(source_field_name.clone(), source_val);
@@ -82,10 +81,15 @@ fn generate_single_group(
 }
 
 fn is_location_group(group_name: &str, fields: &[String]) -> bool {
-    if group_name.contains("location") || group_name.contains("address") || group_name.contains("geo") {
+    if group_name.contains("location")
+        || group_name.contains("address")
+        || group_name.contains("geo")
+    {
         return true;
     }
-    let location_keywords = ["office", "city", "state", "zip", "timezone", "phone", "address", "location"];
+    let location_keywords = [
+        "office", "city", "state", "zip", "timezone", "phone", "address", "location",
+    ];
     let matches = fields
         .iter()
         .filter(|f| location_keywords.iter().any(|kw| f.contains(kw)))
@@ -94,7 +98,10 @@ fn is_location_group(group_name: &str, fields: &[String]) -> bool {
 }
 
 fn is_identity_group(group_name: &str, fields: &[String]) -> bool {
-    if group_name.contains("identity") || group_name.contains("person") || group_name.contains("name") {
+    if group_name.contains("identity")
+        || group_name.contains("person")
+        || group_name.contains("name")
+    {
         return true;
     }
     let identity_keywords = ["first_name", "last_name", "email", "username", "name"];
@@ -121,34 +128,38 @@ fn generate_location_group(
 
     for field_name in field_names {
         let lower = field_name.to_lowercase();
-        let value = if lower.contains("office") || lower.contains("city") || lower.contains("location") {
-            Value::String(format!("{}, {}", city, state))
-        } else if lower.contains("state") || lower.contains("region") {
-            Value::String(state.to_string())
-        } else if lower.contains("zip") || lower.contains("postal") {
-            Value::String(zip.to_string())
-        } else if lower.contains("timezone") || lower.contains("tz") || lower == "time_zone" {
-            Value::String(tz.to_string())
-        } else if lower.contains("phone") || lower.contains("tel") {
-            Value::String(format!(
-                "+1-{}-{:03}-{:04}",
-                area_code,
-                ctx.rng.gen_range(200..999),
-                ctx.rng.gen_range(1000..9999)
-            ))
-        } else if lower.contains("address") || lower.contains("street") {
-            let street_num = ctx.rng.gen_range(100..9999);
-            let street_names = embedded::STREET_NAMES;
-            let street_suffixes = embedded::STREET_SUFFIXES;
-            let sn = street_names[ctx.rng.gen_range(0..street_names.len())];
-            let ss = street_suffixes[ctx.rng.gen_range(0..street_suffixes.len())];
-            Value::String(format!("{} {} {}, {}, {} {}", street_num, sn, ss, city, state, zip))
-        } else if lower.contains("country") {
-            Value::String("US".to_string())
-        } else {
-            // Fallback: use the city name
-            Value::String(format!("{}, {}", city, state))
-        };
+        let value =
+            if lower.contains("office") || lower.contains("city") || lower.contains("location") {
+                Value::String(format!("{}, {}", city, state))
+            } else if lower.contains("state") || lower.contains("region") {
+                Value::String(state.to_string())
+            } else if lower.contains("zip") || lower.contains("postal") {
+                Value::String(zip.to_string())
+            } else if lower.contains("timezone") || lower.contains("tz") || lower == "time_zone" {
+                Value::String(tz.to_string())
+            } else if lower.contains("phone") || lower.contains("tel") {
+                Value::String(format!(
+                    "+1-{}-{:03}-{:04}",
+                    area_code,
+                    ctx.rng.gen_range(200..999),
+                    ctx.rng.gen_range(1000..9999)
+                ))
+            } else if lower.contains("address") || lower.contains("street") {
+                let street_num = ctx.rng.gen_range(100..9999);
+                let street_names = embedded::STREET_NAMES;
+                let street_suffixes = embedded::STREET_SUFFIXES;
+                let sn = street_names[ctx.rng.gen_range(0..street_names.len())];
+                let ss = street_suffixes[ctx.rng.gen_range(0..street_suffixes.len())];
+                Value::String(format!(
+                    "{} {} {}, {}, {} {}",
+                    street_num, sn, ss, city, state, zip
+                ))
+            } else if lower.contains("country") {
+                Value::String("US".to_string())
+            } else {
+                // Fallback: use the city name
+                Value::String(format!("{}, {}", city, state))
+            };
 
         result.insert(field_name.clone(), value);
     }
@@ -198,7 +209,10 @@ fn generate_identity_group(
                 last.to_lowercase(),
                 domain
             ))
-        } else if lower.contains("username") || lower.contains("user_name") || lower.contains("handle") {
+        } else if lower.contains("username")
+            || lower.contains("user_name")
+            || lower.contains("handle")
+        {
             Value::String(format!("{}{}", first.to_lowercase(), num_suffix))
         } else {
             // Fallback: full name
@@ -261,7 +275,10 @@ fn derive_from_value(
     }
 
     // timezone @from(office/city) -> derive timezone from location
-    if lower_target.contains("timezone") || lower_target.contains("tz") || lower_target == "time_zone" {
+    if lower_target.contains("timezone")
+        || lower_target.contains("tz")
+        || lower_target == "time_zone"
+    {
         let tz = lookup_timezone_for_location(&source_str);
         return Ok(Value::String(tz));
     }
@@ -384,9 +401,10 @@ mod tests {
             "phone".into(),
             Field::new("phone", TypeExpr::Primitive(PrimitiveType::String(None))),
         );
-        entity
-            .coherence_groups
-            .insert("location".into(), vec!["office".into(), "timezone".into(), "phone".into()]);
+        entity.coherence_groups.insert(
+            "location".into(),
+            vec!["office".into(), "timezone".into(), "phone".into()],
+        );
 
         let mut ctx = make_ctx();
         let result = generate_coherence_groups(&entity, &mut ctx).unwrap();
@@ -398,15 +416,26 @@ mod tests {
         // Verify timezone matches the city
         let office_str = result["office"].to_output_string();
         let tz_str = result["timezone"].to_output_string();
-        assert!(tz_str.starts_with("America/") || tz_str.starts_with("Pacific/"),
-            "timezone should be a valid IANA timezone, got: {}", tz_str);
+        assert!(
+            tz_str.starts_with("America/") || tz_str.starts_with("Pacific/"),
+            "timezone should be a valid IANA timezone, got: {}",
+            tz_str
+        );
 
         // Phone should start with +1-
         let phone_str = result["phone"].to_output_string();
-        assert!(phone_str.starts_with("+1-"), "phone should start with +1-, got: {}", phone_str);
+        assert!(
+            phone_str.starts_with("+1-"),
+            "phone should start with +1-, got: {}",
+            phone_str
+        );
 
         // The office location should contain a comma (city, state format)
-        assert!(office_str.contains(','), "office should be 'city, state' format, got: {}", office_str);
+        assert!(
+            office_str.contains(','),
+            "office should be 'city, state' format, got: {}",
+            office_str
+        );
     }
 
     #[test]
@@ -414,11 +443,17 @@ mod tests {
         let mut entity = Entity::new("User");
         entity.fields.insert(
             "first_name".into(),
-            Field::new("first_name", TypeExpr::Semantic(SemanticType::new("person", "first"))),
+            Field::new(
+                "first_name",
+                TypeExpr::Semantic(SemanticType::new("person", "first")),
+            ),
         );
         entity.fields.insert(
             "last_name".into(),
-            Field::new("last_name", TypeExpr::Semantic(SemanticType::new("person", "last"))),
+            Field::new(
+                "last_name",
+                TypeExpr::Semantic(SemanticType::new("person", "last")),
+            ),
         );
         entity.fields.insert(
             "email".into(),
@@ -426,11 +461,19 @@ mod tests {
         );
         entity.fields.insert(
             "username".into(),
-            Field::new("username", TypeExpr::Semantic(SemanticType::new("person", "username"))),
+            Field::new(
+                "username",
+                TypeExpr::Semantic(SemanticType::new("person", "username")),
+            ),
         );
         entity.coherence_groups.insert(
             "identity".into(),
-            vec!["first_name".into(), "last_name".into(), "email".into(), "username".into()],
+            vec![
+                "first_name".into(),
+                "last_name".into(),
+                "email".into(),
+                "username".into(),
+            ],
         );
 
         let mut ctx = make_ctx();
@@ -444,13 +487,18 @@ mod tests {
         // Email should contain first.last@
         assert!(
             email.contains(&format!("{}.{}", first.to_lowercase(), last.to_lowercase())),
-            "email '{}' should contain '{}.{}'", email, first.to_lowercase(), last.to_lowercase()
+            "email '{}' should contain '{}.{}'",
+            email,
+            first.to_lowercase(),
+            last.to_lowercase()
         );
 
         // Username should start with lowercase first name
         assert!(
             username.starts_with(&first.to_lowercase()),
-            "username '{}' should start with '{}'", username, first.to_lowercase()
+            "username '{}' should start with '{}'",
+            username,
+            first.to_lowercase()
         );
     }
 
@@ -459,7 +507,10 @@ mod tests {
         let mut entity = Entity::new("User");
         entity.fields.insert(
             "name".into(),
-            Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full"))),
+            Field::new(
+                "name",
+                TypeExpr::Semantic(SemanticType::new("person", "full")),
+            ),
         );
         entity.fields.insert(
             "email".into(),
@@ -467,10 +518,9 @@ mod tests {
                 .with_decorators(vec![Decorator::From(vec!["name".into()])]),
         );
         // Put name in a coherence group so it gets generated first
-        entity.coherence_groups.insert(
-            "person".into(),
-            vec!["name".into()],
-        );
+        entity
+            .coherence_groups
+            .insert("person".into(), vec!["name".into()]);
 
         let mut ctx = make_ctx();
         let result = generate_coherence_groups(&entity, &mut ctx).unwrap();
@@ -479,7 +529,11 @@ mod tests {
         assert!(result.contains_key("email"));
 
         let email = result["email"].to_output_string();
-        assert!(email.contains('@'), "email should contain @, got: {}", email);
+        assert!(
+            email.contains('@'),
+            "email should contain @, got: {}",
+            email
+        );
     }
 
     #[test]
@@ -487,7 +541,10 @@ mod tests {
         let mut entity = Entity::new("User");
         entity.fields.insert(
             "name".into(),
-            Field::new("name", TypeExpr::Semantic(SemanticType::new("person", "full"))),
+            Field::new(
+                "name",
+                TypeExpr::Semantic(SemanticType::new("person", "full")),
+            ),
         );
         entity.fields.insert(
             "email".into(),
@@ -499,12 +556,22 @@ mod tests {
         let mut ctx = make_ctx();
         let result = generate_coherence_groups(&entity, &mut ctx).unwrap();
 
-        assert!(result.contains_key("name"), "name should be generated as @from source");
-        assert!(result.contains_key("email"), "email should be derived via @from");
+        assert!(
+            result.contains_key("name"),
+            "name should be generated as @from source"
+        );
+        assert!(
+            result.contains_key("email"),
+            "email should be derived via @from"
+        );
 
         let name = result["name"].to_output_string();
         let email = result["email"].to_output_string();
-        assert!(email.contains('@'), "email should contain @, got: {}", email);
+        assert!(
+            email.contains('@'),
+            "email should contain @, got: {}",
+            email
+        );
 
         // Verify email is actually derived from the name
         let name_parts: Vec<&str> = name.split_whitespace().collect();
@@ -535,10 +602,9 @@ mod tests {
             "size".into(),
             Field::new("size", TypeExpr::Primitive(PrimitiveType::Int(None))),
         );
-        entity.coherence_groups.insert(
-            "appearance".into(),
-            vec!["color".into(), "size".into()],
-        );
+        entity
+            .coherence_groups
+            .insert("appearance".into(), vec!["color".into(), "size".into()]);
 
         let mut ctx = make_ctx();
         let result = generate_coherence_groups(&entity, &mut ctx).unwrap();
@@ -559,10 +625,9 @@ mod tests {
             "timezone".into(),
             Field::new("timezone", TypeExpr::Primitive(PrimitiveType::String(None))),
         );
-        entity.coherence_groups.insert(
-            "location".into(),
-            vec!["city".into(), "timezone".into()],
-        );
+        entity
+            .coherence_groups
+            .insert("location".into(), vec!["city".into(), "timezone".into()]);
 
         let mut ctx = make_ctx();
         for _ in 0..20 {
@@ -573,8 +638,11 @@ mod tests {
             // Find matching city in corpus and verify timezone
             let city_name = city_str.split(',').next().unwrap().trim();
             if let Some(entry) = embedded::CITIES.iter().find(|(c, _, _, _)| *c == city_name) {
-                assert_eq!(tz_str, entry.3,
-                    "For city '{}', expected tz '{}' but got '{}'", city_name, entry.3, tz_str);
+                assert_eq!(
+                    tz_str, entry.3,
+                    "For city '{}', expected tz '{}' but got '{}'",
+                    city_name, entry.3, tz_str
+                );
             }
         }
     }
