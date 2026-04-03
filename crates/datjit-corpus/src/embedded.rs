@@ -5558,3 +5558,133 @@ pub static ECOMMERCE_AISLES: &[&str] = &[
     "nuts seeds dried fruit",
     "energy granola bars",
 ];
+
+// ── Taxonomy fallback data ─────────────────────────────────────────
+
+/// Representative NAICS industry codes (fallback)
+pub static NAICS_CODES: &[(&str, &str)] = &[
+    ("111110", "Soybean Farming"),
+    (
+        "236220",
+        "Commercial and Institutional Building Construction",
+    ),
+    ("334111", "Electronic Computer Manufacturing"),
+    (
+        "423430",
+        "Computer and Computer Peripheral Equipment and Software Merchant Wholesalers",
+    ),
+    ("541511", "Custom Computer Programming Services"),
+];
+
+/// Representative ISIC industry codes (fallback)
+pub static ISIC_CODES: &[(&str, &str)] = &[
+    ("0111", "Growing of cereals"),
+    ("1010", "Processing and preserving of meat"),
+    ("2610", "Manufacture of electronic components"),
+    ("4510", "Sale of motor vehicles"),
+    ("6201", "Computer programming activities"),
+];
+
+/// Representative SIC codes (fallback)
+pub static SIC_CODES: &[(&str, &str)] = &[
+    ("0100", "Agricultural Production-Crops"),
+    ("1500", "General Building Contractors"),
+    ("3571", "Electronic Computers"),
+    ("5045", "Computers and Peripherals"),
+    ("7371", "Computer Services"),
+];
+
+/// Representative HS codes (fallback)
+pub static HS_CODES: &[(&str, &str)] = &[
+    ("01", "Live animals"),
+    ("27", "Mineral fuels, mineral oils"),
+    ("84", "Nuclear reactors, boilers, machinery"),
+    ("85", "Electrical machinery and equipment"),
+    ("87", "Vehicles other than railway"),
+];
+
+/// Representative MCC codes (fallback)
+pub static MCC_CODES: &[(&str, &str)] = &[
+    ("5411", "Grocery Stores, Supermarkets"),
+    ("5541", "Service Stations"),
+    ("5812", "Eating Places, Restaurants"),
+    ("5912", "Drug Stores and Pharmacies"),
+    ("5999", "Miscellaneous and Specialty Retail Stores"),
+];
+
+/// Representative CIP codes (fallback)
+pub static CIP_CODES: &[(&str, &str)] = &[
+    ("11.0101", "Computer and Information Sciences, General"),
+    ("14.0101", "Engineering, General"),
+    ("26.0101", "Biology/Biological Sciences, General"),
+    ("40.0101", "Physical Sciences"),
+    ("52.0201", "Business Administration and Management, General"),
+];
+
+/// Representative ELF codes (fallback)
+pub static ELF_CODES: &[(&str, &str, &str)] = &[
+    ("8888", "Limited Liability Company", "US"),
+    ("MSZV", "Public Limited Company", "GB"),
+    ("8Z7N", "Société à responsabilité limitée", "FR"),
+    ("V2YH", "Gesellschaft mit beschränkter Haftung", "DE"),
+    ("XJHM", "Sociedad Limitada", "ES"),
+];
+
+/// Representative LEI entries (fallback)
+pub static LEI_ENTRIES: &[(&str, &str, &str)] = &[
+    ("7H6GLXDRUGQFU57RNE97", "JPMorgan Chase & Co.", "US"),
+    ("549300GKFG0RYRRQ1574", "Bank of America Corporation", "US"),
+    ("549300FQ834355MHWI02", "Alphabet Inc.", "US"),
+    ("XKZZ2JZF41MRHTR1V493", "Apple Inc.", "US"),
+    ("549300JNRN4F6Z7TCI80", "Microsoft Corporation", "US"),
+];
+
+/// Representative COFOG codes (fallback)
+pub static COFOG_CODES: &[(&str, &str)] = &[
+    ("01", "General public services"),
+    ("03", "Public order and safety"),
+    ("04", "Economic affairs"),
+    ("07", "Health"),
+    ("09", "Education"),
+];
+
+/// Representative ATC codes (fallback)
+pub static ATC_CODES: &[(&str, &str)] = &[
+    ("A02BC01", "Omeprazole"),
+    ("B01AC06", "Acetylsalicylic acid"),
+    ("C07AB02", "Metoprolol"),
+    ("J01CA04", "Amoxicillin"),
+    ("N02BE01", "Paracetamol"),
+];
+
+/// Representative MeSH terms (fallback)
+pub static MESH_TERMS: &[(&str, &str)] = &[
+    ("D000082", "Acetaminophen"),
+    ("D001241", "Aspirin"),
+    ("D003920", "Diabetes Mellitus"),
+    ("D006333", "Heart Failure"),
+    ("D009369", "Neoplasms"),
+];
+
+/// Representative UN M.49 entries (fallback)
+pub static UN_M49: &[(&str, &str, &str, &str)] = &[
+    (
+        "840",
+        "United States of America",
+        "Americas",
+        "Northern America",
+    ),
+    ("826", "United Kingdom", "Europe", "Northern Europe"),
+    ("276", "Germany", "Europe", "Western Europe"),
+    ("392", "Japan", "Asia", "Eastern Asia"),
+    ("076", "Brazil", "Americas", "South America"),
+];
+
+/// Representative NCBI taxonomy entries (fallback)
+pub static NCBI_TAXONOMY: &[(&str, &str)] = &[
+    ("9606", "Homo sapiens"),
+    ("9913", "Bos taurus"),
+    ("9615", "Canis lupus familiaris"),
+    ("9031", "Gallus gallus"),
+    ("3702", "Arabidopsis thaliana"),
+];

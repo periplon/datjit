@@ -196,6 +196,10 @@ pub fn known_sources() -> Vec<CorpusSource> {
     sources.extend(crate::updater_github::github_known_sources());
     sources.extend(crate::updater_odoo::odoo_known_sources());
     sources.extend(crate::updater_ecommerce::ecommerce_known_sources());
+    sources.extend(crate::updater_taxonomy::taxonomy_known_sources());
+    sources.extend(crate::updater_taxonomy2::taxonomy2_known_sources());
+    sources.extend(crate::updater_media::media_known_sources());
+    sources.extend(crate::updater_catalogs::catalogs_known_sources());
     sources
 }
 
@@ -624,6 +628,42 @@ pub fn update_corpus(
 
     // Ecommerce sources (Batch 6: ecommerce datasets)
     crate::updater_ecommerce::download_ecommerce_sources(
+        &client,
+        &temp_shared,
+        &temp_locale,
+        &mut report,
+        on_progress,
+    );
+
+    // Taxonomy sources (Batch 7: industry, commerce, education, legal, government)
+    crate::updater_taxonomy::download_taxonomy_sources(
+        &client,
+        &temp_shared,
+        &temp_locale,
+        &mut report,
+        on_progress,
+    );
+
+    // Taxonomy sources (Batch 8: medical, geography, financial, biology, environment)
+    crate::updater_taxonomy2::download_taxonomy2_sources(
+        &client,
+        &temp_shared,
+        &temp_locale,
+        &mut report,
+        on_progress,
+    );
+
+    // Media sources (Batch 9: MusicBrainz, Discogs, Open Library, IMDb)
+    crate::updater_media::download_media_sources(
+        &client,
+        &temp_shared,
+        &temp_locale,
+        &mut report,
+        on_progress,
+    );
+
+    // Product catalog sources (Batch 10: Open Beauty Facts, Open Products Facts, PubChem)
+    crate::updater_catalogs::download_catalogs_sources(
         &client,
         &temp_shared,
         &temp_locale,
@@ -2046,7 +2086,7 @@ mod tests {
     #[test]
     fn test_known_sources_count() {
         let sources = known_sources();
-        assert_eq!(sources.len(), 51); // 39 original + 8 Odoo ERP + 4 ecommerce
+        assert_eq!(sources.len(), 80); // 39 original + 8 Odoo ERP + 4 ecommerce + 13 taxonomy + 7 taxonomy2 + 6 media + 3 catalogs
     }
 
     #[test]

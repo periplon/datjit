@@ -69,6 +69,7 @@ impl SemanticType {
                 | "accounting"
                 | "erp"
                 | "ecommerce"
+                | "taxonomy"
         )
     }
 
@@ -143,6 +144,7 @@ mod tests {
             "ipv6",
             "mac",
             "accounting",
+            "taxonomy",
         ];
         for name in names {
             assert!(

@@ -69,8 +69,7 @@ pub fn ecommerce_known_sources() -> Vec<CorpusSource> {
         },
         CorpusSource {
             name: "Instacart Products".into(),
-            description: "~5K sampled grocery products with aisle/department from Instacart"
-                .into(),
+            description: "~5K sampled grocery products with aisle/department from Instacart".into(),
             url: format!("{INSTACART_RAW_BASE}products.csv"),
             license: "CC0".into(),
             category: "ecommerce".into(),
@@ -149,11 +148,7 @@ fn download_and_process_instacart_aisles(
     let mut entries: Vec<InstacartAisleEntry> = Vec::new();
     for result in rdr.records() {
         let record = result.map_err(|e| DatjitError::Corpus(format!("CSV parse: {e}")))?;
-        let id: u32 = record
-            .get(0)
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0);
+        let id: u32 = record.get(0).unwrap_or("0").parse().unwrap_or(0);
         let name = record.get(1).unwrap_or("").trim().to_string();
         if !name.is_empty() {
             entries.push(InstacartAisleEntry { id, name });
@@ -187,11 +182,7 @@ fn download_and_process_instacart_departments(
     let mut entries: Vec<InstacartDepartmentEntry> = Vec::new();
     for result in rdr.records() {
         let record = result.map_err(|e| DatjitError::Corpus(format!("CSV parse: {e}")))?;
-        let id: u32 = record
-            .get(0)
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0);
+        let id: u32 = record.get(0).unwrap_or("0").parse().unwrap_or(0);
         let name = record.get(1).unwrap_or("").trim().to_string();
         if !name.is_empty() {
             entries.push(InstacartDepartmentEntry { id, name });
@@ -248,25 +239,11 @@ fn download_and_process_instacart_products(
             continue;
         }
 
-        let aisle_id: u32 = record
-            .get(2)
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0);
-        let dept_id: u32 = record
-            .get(3)
-            .unwrap_or("0")
-            .parse()
-            .unwrap_or(0);
+        let aisle_id: u32 = record.get(2).unwrap_or("0").parse().unwrap_or(0);
+        let dept_id: u32 = record.get(3).unwrap_or("0").parse().unwrap_or(0);
 
-        let aisle = aisles_map
-            .get(&aisle_id)
-            .cloned()
-            .unwrap_or_default();
-        let department = depts_map
-            .get(&dept_id)
-            .cloned()
-            .unwrap_or_default();
+        let aisle = aisles_map.get(&aisle_id).cloned().unwrap_or_default();
+        let department = depts_map.get(&dept_id).cloned().unwrap_or_default();
 
         entries.push(InstacartProductEntry {
             name,

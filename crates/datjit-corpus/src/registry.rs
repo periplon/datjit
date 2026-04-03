@@ -55,6 +55,38 @@ const CORPUS_FILES: &[&str] = &[
     "shared/instacart_departments.json",
     "shared/instacart_products.json",
     "shared/uk_retail_products.json",
+    // Taxonomy sources (Batch 7+8)
+    "shared/naics_codes.json",
+    "shared/isic_codes.json",
+    "shared/sic_codes.json",
+    "shared/unspsc_codes.json",
+    "shared/hs_codes.json",
+    "shared/mcc_codes.json",
+    "shared/cip_codes.json",
+    "shared/isced_codes.json",
+    "shared/elf_codes.json",
+    "shared/lei_registry.json",
+    "shared/cofog_codes.json",
+    "shared/cpv_codes.json",
+    "shared/dewey_codes.json",
+    "shared/atc_codes.json",
+    "shared/mesh_terms.json",
+    "shared/un_m49.json",
+    "shared/iso_3166_2.json",
+    "shared/swift_bic.json",
+    "shared/ncbi_taxonomy.json",
+    "shared/ipcc_categories.json",
+    // Media sources (Batch 9)
+    "shared/musicbrainz_artists.json",
+    "shared/discogs_artists.json",
+    "shared/discogs_labels.json",
+    "shared/openlibrary_books.json",
+    "shared/imdb_titles.json",
+    "shared/imdb_names.json",
+    // Product catalog sources (Batch 10)
+    "shared/beauty_products.json",
+    "shared/consumer_products.json",
+    "shared/pubchem_compounds.json",
 ];
 
 impl CorpusRegistry {
@@ -1202,6 +1234,824 @@ impl CorpusProvider for CorpusRegistry {
                     }
                 } else {
                     Value::String(pick(embedded::ECOMMERCE_DEPARTMENTS, rng).to_string())
+                }
+            }
+
+            // ── Taxonomy ─────────────────────────────────────────────
+            "taxonomy.naics_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/naics_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::NAICS_CODES[rng.gen_range(0..embedded::NAICS_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::NAICS_CODES[rng.gen_range(0..embedded::NAICS_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.naics_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/naics_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::NAICS_CODES[rng.gen_range(0..embedded::NAICS_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::NAICS_CODES[rng.gen_range(0..embedded::NAICS_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.isic_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/isic_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::ISIC_CODES[rng.gen_range(0..embedded::ISIC_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::ISIC_CODES[rng.gen_range(0..embedded::ISIC_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.isic_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/isic_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::ISIC_CODES[rng.gen_range(0..embedded::ISIC_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::ISIC_CODES[rng.gen_range(0..embedded::ISIC_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.sic_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/sic_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::SIC_CODES[rng.gen_range(0..embedded::SIC_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::SIC_CODES[rng.gen_range(0..embedded::SIC_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.sic_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/sic_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::SIC_CODES[rng.gen_range(0..embedded::SIC_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::SIC_CODES[rng.gen_range(0..embedded::SIC_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.unspsc_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/unspsc_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("54000000".into())
+                    }
+                } else {
+                    Value::String("54000000".into())
+                }
+            }
+            "taxonomy.unspsc_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/unspsc_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("Timepieces and Jewelry and Gemstone Products".into())
+                    }
+                } else {
+                    Value::String("Timepieces and Jewelry and Gemstone Products".into())
+                }
+            }
+            "taxonomy.hs_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/hs_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::HS_CODES[rng.gen_range(0..embedded::HS_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::HS_CODES[rng.gen_range(0..embedded::HS_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.hs_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/hs_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::HS_CODES[rng.gen_range(0..embedded::HS_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::HS_CODES[rng.gen_range(0..embedded::HS_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.mcc_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/mcc_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::MCC_CODES[rng.gen_range(0..embedded::MCC_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::MCC_CODES[rng.gen_range(0..embedded::MCC_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.mcc_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/mcc_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::MCC_CODES[rng.gen_range(0..embedded::MCC_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::MCC_CODES[rng.gen_range(0..embedded::MCC_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.cip_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/cip_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::CIP_CODES[rng.gen_range(0..embedded::CIP_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::CIP_CODES[rng.gen_range(0..embedded::CIP_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.cip_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/cip_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "title", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::CIP_CODES[rng.gen_range(0..embedded::CIP_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::CIP_CODES[rng.gen_range(0..embedded::CIP_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.isced_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/isced_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("6".into())
+                    }
+                } else {
+                    Value::String("6".into())
+                }
+            }
+            "taxonomy.isced_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/isced_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("Bachelor's or equivalent level".into())
+                    }
+                } else {
+                    Value::String("Bachelor's or equivalent level".into())
+                }
+            }
+            "taxonomy.elf_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/elf_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::ELF_CODES[rng.gen_range(0..embedded::ELF_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::ELF_CODES[rng.gen_range(0..embedded::ELF_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.elf_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/elf_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::ELF_CODES[rng.gen_range(0..embedded::ELF_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::ELF_CODES[rng.gen_range(0..embedded::ELF_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.lei_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/lei_registry.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "lei", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::LEI_ENTRIES[rng.gen_range(0..embedded::LEI_ENTRIES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::LEI_ENTRIES[rng.gen_range(0..embedded::LEI_ENTRIES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.lei_name" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/lei_registry.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::LEI_ENTRIES[rng.gen_range(0..embedded::LEI_ENTRIES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::LEI_ENTRIES[rng.gen_range(0..embedded::LEI_ENTRIES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.cofog_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/cofog_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::COFOG_CODES[rng.gen_range(0..embedded::COFOG_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::COFOG_CODES[rng.gen_range(0..embedded::COFOG_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.cofog_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/cofog_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::COFOG_CODES[rng.gen_range(0..embedded::COFOG_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::COFOG_CODES[rng.gen_range(0..embedded::COFOG_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.cpv_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/cpv_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("72000000".into())
+                    }
+                } else {
+                    Value::String("72000000".into())
+                }
+            }
+            "taxonomy.cpv_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/cpv_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            "IT services: consulting, software development, Internet and support"
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        "IT services: consulting, software development, Internet and support"
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.dewey_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/dewey_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("500".into())
+                    }
+                } else {
+                    Value::String("500".into())
+                }
+            }
+            "taxonomy.dewey_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/dewey_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("Science".into())
+                    }
+                } else {
+                    Value::String("Science".into())
+                }
+            }
+            "taxonomy.atc_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/atc_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::ATC_CODES[rng.gen_range(0..embedded::ATC_CODES.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::ATC_CODES[rng.gen_range(0..embedded::ATC_CODES.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.atc_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/atc_codes.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::ATC_CODES[rng.gen_range(0..embedded::ATC_CODES.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::ATC_CODES[rng.gen_range(0..embedded::ATC_CODES.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.mesh_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/mesh_terms.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "ui", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::MESH_TERMS[rng.gen_range(0..embedded::MESH_TERMS.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::MESH_TERMS[rng.gen_range(0..embedded::MESH_TERMS.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.mesh_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/mesh_terms.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::MESH_TERMS[rng.gen_range(0..embedded::MESH_TERMS.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::MESH_TERMS[rng.gen_range(0..embedded::MESH_TERMS.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.unm49_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/un_m49.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::UN_M49[rng.gen_range(0..embedded::UN_M49.len())]
+                                .0
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::UN_M49[rng.gen_range(0..embedded::UN_M49.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.unm49_name" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/un_m49.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::UN_M49[rng.gen_range(0..embedded::UN_M49.len())]
+                                .1
+                                .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::UN_M49[rng.gen_range(0..embedded::UN_M49.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.iso3166_2_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/iso_3166_2.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("US-CA".into())
+                    }
+                } else {
+                    Value::String("US-CA".into())
+                }
+            }
+            "taxonomy.iso3166_2_name" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/iso_3166_2.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("California".into())
+                    }
+                } else {
+                    Value::String("California".into())
+                }
+            }
+            "taxonomy.swift_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/swift_bic.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "bic", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("CHASUS33".into())
+                    }
+                } else {
+                    Value::String("CHASUS33".into())
+                }
+            }
+            "taxonomy.swift_bank" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/swift_bic.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "bank_name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("JPMorgan Chase".into())
+                    }
+                } else {
+                    Value::String("JPMorgan Chase".into())
+                }
+            }
+            "taxonomy.ncbi_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/ncbi_taxonomy.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "taxon_id", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::NCBI_TAXONOMY
+                                [rng.gen_range(0..embedded::NCBI_TAXONOMY.len())]
+                            .0
+                            .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::NCBI_TAXONOMY[rng.gen_range(0..embedded::NCBI_TAXONOMY.len())]
+                            .0
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.ncbi_name" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/ncbi_taxonomy.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "scientific_name", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String(
+                            embedded::NCBI_TAXONOMY
+                                [rng.gen_range(0..embedded::NCBI_TAXONOMY.len())]
+                            .1
+                            .into(),
+                        )
+                    }
+                } else {
+                    Value::String(
+                        embedded::NCBI_TAXONOMY[rng.gen_range(0..embedded::NCBI_TAXONOMY.len())]
+                            .1
+                            .into(),
+                    )
+                }
+            }
+            "taxonomy.ipcc_code" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/ipcc_categories.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "code", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("1.A.3".into())
+                    }
+                } else {
+                    Value::String("1.A.3".into())
+                }
+            }
+            "taxonomy.ipcc_description" => {
+                if let Some(arr) = self
+                    .cache
+                    .get("shared/ipcc_categories.json")
+                    .and_then(|v| v.as_array())
+                {
+                    if let Some(val) = sample_uniform(arr, "description", rng) {
+                        Value::String(val)
+                    } else {
+                        Value::String("Transport".into())
+                    }
+                } else {
+                    Value::String("Transport".into())
                 }
             }
 

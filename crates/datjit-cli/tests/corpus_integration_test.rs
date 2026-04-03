@@ -288,7 +288,10 @@ fn test_generate_ecommerce_types() {
 
         let tracking = row.get("tracking").unwrap();
         if let Value::String(s) = tracking {
-            assert!(s.len() > 5, "tracking number should have prefix + digits: {s}");
+            assert!(
+                s.len() > 5,
+                "tracking number should have prefix + digits: {s}"
+            );
         }
     }
 
