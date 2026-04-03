@@ -2,9 +2,27 @@ use std::fs;
 use std::path::PathBuf;
 
 use datjit_core::ports::{DataGenerator, DdlParser, OutputWriter};
+use datjit_core::value::Value;
 use datjit_generator::GenerationEngine;
 use datjit_output::JsonWriter;
 use datjit_parser::YamlParser;
+
+/// Helper: parse a fixture, generate data, and return the dataset.
+/// Panics with a clear message on failure.
+fn parse_and_generate(
+    fixture: &str,
+) -> datjit_core::ports::generator::GeneratedDataSet {
+    let yaml = fs::read_to_string(fixtures_dir().join(fixture))
+        .unwrap_or_else(|_| panic!("failed to read {fixture}"));
+    let parser = YamlParser;
+    let doc = parser
+        .parse(&yaml)
+        .unwrap_or_else(|e| panic!("failed to parse {fixture}: {e}"));
+    let engine = GenerationEngine::new().with_seed(42);
+    engine
+        .generate(&doc)
+        .unwrap_or_else(|e| panic!("failed to generate {fixture}: {e}"))
+}
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -228,5 +246,241 @@ fn test_from_decorator_derives_email_from_name() {
             );
         }
         assert!(email.contains('@'));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fixture coverage tests: ensure every DDL feature fixture parses & generates
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_fixture_primitives_and_params() {
+    let ds = parse_and_generate("primitives_and_params.yaml");
+    let rows = &ds.entities["AllPrimitives"];
+    assert_eq!(rows.row_count(), 20);
+    // Verify all primitive fields are present
+    let r = &rows.rows[0];
+    for field in &[
+        "id", "label", "label_bounded", "count", "count_32", "ratio", "ratio_32",
+        "price", "active", "created", "birthday", "alarm", "elapsed", "token",
+        "payload", "payload_small",
+    ] {
+        assert!(r.contains_key(*field), "missing field: {field}");
+    }
+}
+
+#[test]
+fn test_fixture_semantic_types() {
+    let ds = parse_and_generate("semantic_types.yaml");
+    assert_eq!(ds.entities.len(), 9);
+    for (name, data) in &ds.entities {
+        assert_eq!(data.row_count(), 10, "{name} should have 10 rows");
+    }
+    // Spot-check a few semantic values
+    let person = &ds.entities["Person"].rows[0];
+    let name = person["full_name"].to_output_string();
+    assert!(name.contains(' '), "person.full should have first+last: {name}");
+
+    let contact = &ds.entities["Contact"].rows[0];
+    let email = contact["email"].to_output_string();
+    assert!(email.contains('@'), "email should contain @: {email}");
+}
+
+#[test]
+fn test_fixture_enums_and_distributions() {
+    let ds = parse_and_generate("enums_and_distributions.yaml");
+    let enums = &ds.entities["EnumSampler"];
+    assert_eq!(enums.row_count(), 100);
+
+    let valid_colors: std::collections::HashSet<&str> =
+        ["red", "green", "blue", "yellow"].iter().copied().collect();
+    let valid_tiers: std::collections::HashSet<&str> =
+        ["free", "pro", "enterprise"].iter().copied().collect();
+    let valid_priorities: std::collections::HashSet<&str> =
+        ["critical", "high", "medium", "low"].iter().copied().collect();
+
+    for row in &enums.rows {
+        let color = row["color"].to_output_string();
+        assert!(valid_colors.contains(color.as_str()), "invalid color: {color}");
+        let tier = row["tier"].to_output_string();
+        assert!(valid_tiers.contains(tier.as_str()), "invalid tier: {tier}");
+        let priority = row["priority"].to_output_string();
+        assert!(valid_priorities.contains(priority.as_str()), "invalid priority: {priority}");
+    }
+
+    // Verify distributions produce values in range
+    let dists = &ds.entities["DistSampler"];
+    for row in &dists.rows {
+        if let Value::Int(score) = &row["score"] {
+            assert!(*score >= 0 && *score <= 100, "score out of range: {score}");
+        }
+    }
+}
+
+#[test]
+fn test_fixture_decorators() {
+    let ds = parse_and_generate("decorators.yaml");
+    let constrained = &ds.entities["Constrained"];
+    assert_eq!(constrained.row_count(), 50);
+
+    // Verify range constraints
+    for row in &constrained.rows {
+        if let Value::Int(age) = &row["age"] {
+            assert!(*age >= 18 && *age <= 65, "age out of range: {age}");
+        }
+        // Verify length constraints
+        let title = row["title"].to_output_string();
+        assert!(title.len() >= 5, "title too short: '{title}'");
+    }
+
+    // Verify uniqueness on emails
+    let emails: Vec<_> = constrained.rows.iter().map(|r| r["email"].to_output_string()).collect();
+    let unique: std::collections::HashSet<_> = emails.iter().collect();
+    assert_eq!(emails.len(), unique.len(), "emails should be unique");
+
+    // Verify pattern templates
+    let patterned = &ds.entities["Patterned"];
+    for row in &patterned.rows {
+        let sku = row["sku"].to_output_string();
+        assert!(sku.starts_with("SKU-"), "sku should start with SKU-: {sku}");
+    }
+}
+
+#[test]
+fn test_fixture_references() {
+    let ds = parse_and_generate("references.yaml");
+    assert_eq!(ds.entities["Department"].row_count(), 5);
+    assert_eq!(ds.entities["Employee"].row_count(), 30);
+    assert_eq!(ds.entities["Project"].row_count(), 10);
+    assert_eq!(ds.entities["Task"].row_count(), 50);
+
+    // Verify references are present (either Ref or Null for optionals)
+    for row in &ds.entities["Task"].rows {
+        assert!(row.contains_key("project"));
+        assert!(row.contains_key("assignee"));
+        assert!(row.contains_key("parent"));
+    }
+}
+
+#[test]
+fn test_fixture_coherence_groups() {
+    let ds = parse_and_generate("coherence_groups.yaml");
+
+    // Verify location coherence: timezone matches city/state
+    let offices = &ds.entities["Office"];
+    for row in &offices.rows {
+        let tz = row["timezone"].to_output_string();
+        assert!(
+            tz.contains('/'),
+            "timezone should be IANA format: {tz}"
+        );
+        let phone = row["phone"].to_output_string();
+        assert!(
+            phone.starts_with("+1-"),
+            "phone should start with +1-: {phone}"
+        );
+    }
+
+    // Verify identity coherence: email derived from first+last
+    let employees = &ds.entities["Employee"];
+    for row in &employees.rows {
+        let first = row["first_name"].to_output_string();
+        let email = row["email"].to_output_string();
+        assert!(
+            email.starts_with(&first.to_lowercase()),
+            "email '{email}' should start with first name '{first}'"
+        );
+    }
+}
+
+#[test]
+fn test_fixture_entity_meta() {
+    let ds = parse_and_generate("entity_meta.yaml");
+
+    // Verify @timestamps adds created_at and updated_at
+    let users = &ds.entities["User"];
+    assert_eq!(users.row_count(), 10);
+    for row in &users.rows {
+        assert!(
+            row.contains_key("created_at"),
+            "User should have created_at from @timestamps"
+        );
+        assert!(
+            row.contains_key("updated_at"),
+            "User should have updated_at from @timestamps"
+        );
+    }
+}
+
+#[test]
+fn test_fixture_rules() {
+    let ds = parse_and_generate("rules.yaml");
+    let users = &ds.entities["User"];
+    assert_eq!(users.row_count(), 10);
+
+    // @strict rule: age >= 18
+    for row in &users.rows {
+        if let Value::Int(age) = &row["age"] {
+            assert!(*age >= 18, "strict rule violated: age {age} < 18");
+        }
+    }
+
+    // @strict rule: amount > 0
+    let orders = &ds.entities["Order"];
+    for row in &orders.rows {
+        if let Value::Float(amount) = &row["amount"] {
+            assert!(*amount > 0.0, "strict rule violated: amount {amount} <= 0");
+        }
+    }
+}
+
+#[test]
+fn test_fixture_derived_fields() {
+    let ds = parse_and_generate("derived_fields.yaml");
+    let products = &ds.entities["Product"];
+    assert_eq!(products.row_count(), 20);
+
+    for row in &products.rows {
+        // Verify slug is derived from name
+        assert!(row.contains_key("slug"), "Product should have derived slug");
+        assert!(row.contains_key("name_lower"), "Product should have derived name_lower");
+        assert!(row.contains_key("tax_amount"), "Product should have derived tax_amount");
+    }
+}
+
+#[test]
+fn test_fixture_compound_types() {
+    let ds = parse_and_generate("compound_types.yaml");
+    let records = &ds.entities["Record"];
+    assert_eq!(records.row_count(), 15);
+
+    for row in &records.rows {
+        // List field should be a List
+        assert!(
+            matches!(&row["tags"], Value::List(_)),
+            "tags should be a list, got: {:?}",
+            row["tags"]
+        );
+        // Tuple should be a Tuple
+        assert!(
+            matches!(&row["coordinates"], Value::Tuple(_)),
+            "coordinates should be a tuple, got: {:?}",
+            row["coordinates"]
+        );
+    }
+}
+
+#[test]
+fn test_fixture_named_types() {
+    let ds = parse_and_generate("named_types.yaml");
+    assert_eq!(ds.entities["Customer"].row_count(), 10);
+    assert_eq!(ds.entities["Vendor"].row_count(), 5);
+
+    // Named enum Tier should resolve to valid variants
+    let valid_tiers: std::collections::HashSet<&str> =
+        ["free", "basic", "premium", "enterprise"].iter().copied().collect();
+    for row in &ds.entities["Customer"].rows {
+        let tier = row["tier"].to_output_string();
+        assert!(valid_tiers.contains(tier.as_str()), "invalid tier: {tier}");
     }
 }

@@ -22,6 +22,8 @@ pub struct Field {
     pub name: String,
     pub type_expr: TypeExpr,
     pub decorators: Vec<Decorator>,
+    pub label: Option<String>,
+    pub description: Option<String>,
 }
 
 impl Entity {
@@ -63,6 +65,8 @@ impl Field {
             name: name.into(),
             type_expr,
             decorators: Vec::new(),
+            label: None,
+            description: None,
         }
     }
 

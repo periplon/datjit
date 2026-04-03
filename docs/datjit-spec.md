@@ -207,6 +207,28 @@ name: product.title @domain(electronics)    # "Bluetooth Speaker Pro X"
 name: product.title @domain(food)           # "Organic Acai Bowl Mix"
 ```
 
+### 2.7 Field Labels and Descriptions
+
+Fields support an optional `label` (human-readable name) and `description` (documentation text). To use them, write the field as a mapping with a `type` key instead of the shorthand string:
+
+```yaml
+entities:
+  Material:
+    id: uuid @primary                              # shorthand — still works
+    number:
+      type: string @unique @pattern("MAT-{0000000}")
+      label: "Material Number"
+      description: "Unique identifier assigned by the ERP system"
+    name:
+      type: product.title
+      label: "Material Name"
+    inspection_required:
+      type: enum(0, 1) @dist(80, 20)
+      description: "Whether incoming inspection is mandatory"
+```
+
+Both `label` and `description` are optional and can be used independently. They appear in `inspect` output and serve as documentation — they do not affect generation.
+
 ---
 
 ## 3. Decorators
@@ -509,6 +531,38 @@ enums:
 ```
 
 Weighted enum syntax provides inline distribution without a separate `@dist`.
+
+### 8.1 Variant Descriptions
+
+Each variant can carry an optional `description` for documentation purposes. Descriptions appear in `inspect` output and help collaborators understand domain-specific codes.
+
+```yaml
+enums:
+  MaterialType:
+    - value: STDMATERIAL
+      description: "Standard direct materials for production"
+    - value: STDSERVICE
+      description: "Standard services (consulting, maintenance, etc.)"
+    - value: NONSTD
+      description: "Non-standard or one-off purchases"
+    - value: MRO
+      description: "Maintenance, Repair, and Operations supplies"
+```
+
+All variant fields (`label`, `weight`, `description`) are optional and can be combined freely:
+
+```yaml
+enums:
+  Region:
+    - value: NA
+      label: "North America"
+      weight: 25
+      description: "US, Canada, and Mexico operations"
+    - value: APAC
+      label: "Asia-Pacific"
+      weight: 35
+      description: "Includes ANZ, SEA, and Greater China"
+```
 
 ---
 

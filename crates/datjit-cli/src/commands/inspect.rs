@@ -67,7 +67,13 @@ pub fn run(args: InspectArgs) -> Result<()> {
             } else {
                 format!(" [{}]", decorators.join(", "))
             };
-            println!("    {field_name}: {type_str}{dec_str}");
+            let meta = match (&field.label, &field.description) {
+                (Some(l), Some(d)) => format!("  — \"{l}\": {d}"),
+                (Some(l), None) => format!("  — \"{l}\""),
+                (None, Some(d)) => format!("  — {d}"),
+                (None, None) => String::new(),
+            };
+            println!("    {field_name}: {type_str}{dec_str}{meta}");
         }
     }
     println!();
@@ -116,7 +122,27 @@ pub fn run(args: InspectArgs) -> Result<()> {
         println!();
         println!("Enums ({}):", doc.enums.len());
         for (name, enum_def) in &doc.enums {
-            println!("  {name}: {} variants", enum_def.variants.len());
+            let has_descriptions = enum_def
+                .variants
+                .iter()
+                .any(|v| v.description.is_some());
+            if has_descriptions {
+                println!("  {name}: {} variants", enum_def.variants.len());
+                for v in &enum_def.variants {
+                    if let Some(desc) = &v.description {
+                        let label = v
+                            .label
+                            .as_deref()
+                            .map(|l| format!(" ({l})"))
+                            .unwrap_or_default();
+                        println!("    - {}{label}: {desc}", v.value);
+                    } else {
+                        println!("    - {}", v.value);
+                    }
+                }
+            } else {
+                println!("  {name}: {} variants", enum_def.variants.len());
+            }
         }
     }
 

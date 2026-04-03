@@ -233,10 +233,12 @@ fn parse_enum_variants(seq: &[YamlValue]) -> Result<Vec<EnumVariant>, DatjitErro
             let weight = mapping
                 .get(&yaml_key("weight"))
                 .and_then(|v| v.as_f64());
+            let description = get_string(mapping, "description");
             variants.push(EnumVariant {
                 value,
                 label,
                 weight,
+                description,
             });
         } else {
             return Err(DatjitError::parse("enum", "invalid variant format"));
@@ -344,13 +346,28 @@ fn parse_fields_excluding(
             continue;
         }
 
-        let field_str = v
-            .as_str()
-            .ok_or_else(|| {
-                DatjitError::parse("field", format!("expected string value for field {name}"))
+        // Accept both string format ("type @decorators") and mapping format
+        // ({ type: "type @decorators", label: "...", description: "..." })
+        let (field_str, label, description) = if let Some(s) = v.as_str() {
+            (s.to_string(), None, None)
+        } else if let Some(mapping) = v.as_mapping() {
+            let type_val = get_string(mapping, "type").ok_or_else(|| {
+                DatjitError::parse(
+                    "field",
+                    format!("mapping format for field {name} requires 'type' key"),
+                )
             })?;
+            let label = get_string(mapping, "label");
+            let description = get_string(mapping, "description");
+            (type_val, label, description)
+        } else {
+            return Err(DatjitError::parse(
+                "field",
+                format!("expected string or mapping for field {name}"),
+            ));
+        };
 
-        let (type_str, decorator_strs) = split_type_and_decorators(field_str);
+        let (type_str, decorator_strs) = split_type_and_decorators(&field_str);
 
         // Handle nullable shorthand: type ends with ? before decorators
         let (type_str, extra_nullable) = if type_str.ends_with('?')
@@ -383,6 +400,8 @@ fn parse_fields_excluding(
                 name: name.to_string(),
                 type_expr,
                 decorators,
+                label,
+                description,
             },
         );
     }

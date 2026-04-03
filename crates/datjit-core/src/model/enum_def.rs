@@ -7,12 +7,13 @@ pub struct EnumDef {
     pub variants: Vec<EnumVariant>,
 }
 
-/// A single enum variant, optionally with a label and weight.
+/// A single enum variant, optionally with a label, weight, and description.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnumVariant {
     pub value: String,
     pub label: Option<String>,
     pub weight: Option<f64>,
+    pub description: Option<String>,
 }
 
 impl EnumVariant {
@@ -21,6 +22,7 @@ impl EnumVariant {
             value: value.into(),
             label: None,
             weight: None,
+            description: None,
         }
     }
 
@@ -29,6 +31,7 @@ impl EnumVariant {
             value: value.into(),
             label: Some(label.into()),
             weight: Some(weight),
+            description: None,
         }
     }
 }
